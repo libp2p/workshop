@@ -23,7 +23,7 @@ cargo install workshop
 
 ## Usage
 
-Read the [user guid](./USER_GUIDE.md) for more information on how to use the application.
+Read the [user guide](./USER_GUIDE.md) for more information on how to use the application.
 
 ## Creating Workshops
 
