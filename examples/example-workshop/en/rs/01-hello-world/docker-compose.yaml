@@ -1,0 +1,12 @@
+version: '3'
+
+services:
+  rust-app:
+    build:
+      context: ./app
+    logging:
+      drive: "local"
+      options:
+        max-size: "10m"
+        max-file: "3"
+        log-path: "stdout.log"

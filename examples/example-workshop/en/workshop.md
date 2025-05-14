@@ -1,0 +1,3 @@
+# Description
+
+This workshop walks you through writing a trivial 'Hello, World!' application in Rust. It is primarily designed to show workshop authors how to create workshops in multiple programming and spoken languages.
