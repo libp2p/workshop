@@ -1,11 +1,18 @@
-use crate::ui::tui::Popups;
-
 /// UI events
 #[derive(Clone, Debug)]
 pub enum Event {
-    Noop,
+    /// quit the application
     Quit,
-    ShowPopup(Popups),
-    ClosePopup,
+    /// show the log popup
+    ShowLog,
+    /// show the license popup
+    ShowLicense(String),
+    /// close the currently shown popup
+    Back,
+    /// launch the browser with the given url
     Homepage(String),
+    /// change the spoken language
+    SpokenLanguage,
+    /// change the programming language
+    ProgrammingLanguage,
 }

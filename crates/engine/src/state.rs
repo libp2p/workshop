@@ -150,7 +150,7 @@ impl State {
             Self::Error {
                 to_ui,
                 fs,
-                error: format!("Invalid state change {} -> select_spoken_language", self),
+                error: format!("Invalid state change {} -> SelectSpokenLanguage", self),
             }
         };
         next.send_message().await?;
@@ -168,7 +168,7 @@ impl State {
             Self::Error {
                 to_ui,
                 fs,
-                error: format!("Invalid state change {} -> set_spoken_language", self),
+                error: format!("Invalid state change {} -> SetSpokenLanguage", self),
             }
         };
         next.send_message().await?;

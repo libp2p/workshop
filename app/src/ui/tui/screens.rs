@@ -26,5 +26,5 @@ pub enum Screens {
 #[async_trait::async_trait]
 pub trait EventHandler {
     /// Handle an event
-    async fn handle_event(&mut self, evt: Event) -> Result<UiEvent, Error>;
+    async fn handle_event(&mut self, evt: &Event) -> Result<Option<UiEvent>, Error>;
 }
