@@ -40,6 +40,8 @@ pub struct Ui<'a> {
     last_frame_duration: Duration,
     /// The log messages
     log: VecDeque<String>,
+    /// The spoken language list state
+
     /// show a popup
     show_popup: Option<Popups>,
     /// The log popup
@@ -206,7 +208,7 @@ impl Ui<'_> {
     }
 
     /// Handle messages from the engine
-    pub async fn on_message(&mut self, msg: &Message) -> Result<(), Error> {
+    pub async fn on_message(&mut self, msg: &Message) -> Result<Option<UiEvent>, Error> {
         match msg {
             Message::SelectWorkshop { workshops } => {
                 self.current_screen = Screens::Workshops;
@@ -216,12 +218,9 @@ impl Ui<'_> {
             }
             Message::SelectSpokenLanguage { spoken_languages } => {
                 // Handle spoken language selection
-                info!("Select spoken language: {:?}", spoken_languages);
-                self.to_engine
-                    .send(Message::SetSpokenLanguage {
-                        code: spoken::Code::en,
-                    })
-                    .await?;
+                return Ok(Some(UiEvent::SelectSpokenLanguage(
+                    spoken_languages.clone(),
+                )));
             }
             Message::SelectProgrammingLanguage {
                 programming_languages,
@@ -239,59 +238,34 @@ impl Ui<'_> {
                 info!("Received message: {:?}", msg);
             }
         }
-        Ok(())
+        Ok(None)
     }
 
     /// Handle events from the input
-    pub async fn on_event(&mut self, evt: &Event) -> bool {
+    pub async fn on_event(&mut self, evt: &Event) -> Result<Option<UiEvent>, Error> {
         // get the next ui_event if there is one
-        let ui_event = {
-            match (&mut *self).handle_event(evt).await {
-                Ok(Some(ui_event)) => ui_event,
-                Ok(None) => match self.show_popup {
-                    Some(Popups::Log) => match (&mut self.log_screen).handle_event(evt).await {
-                        Ok(Some(ui_event)) => ui_event,
-                        Ok(None) => {
-                            info!("Log popup: no event to handle");
-                            return true;
-                        }
-                        Err(e) => {
-                            error!("Log popup: error handling log event: {e}");
-                            return true;
-                        }
-                    },
-                    Some(Popups::License(_)) => {
-                        match (&mut self.license_screen).handle_event(evt).await {
-                            Ok(Some(ui_event)) => ui_event,
-                            Ok(None) => return true,
-                            Err(e) => {
-                                error!("License popup: error handling license event: {e}");
-                                return true;
-                            }
-                        }
-                    }
-                    None => match self.current_screen {
-                        Screens::Workshops => {
-                            match (&mut self.workshops_screen).handle_event(evt).await {
-                                Ok(Some(ui_event)) => ui_event,
-                                Ok(None) => return true,
-                                Err(e) => {
-                                    error!("Error handling event: {e}");
-                                    return true;
-                                }
-                            }
-                        }
-                    },
-                },
-                Err(e) => {
-                    error!("Error handling event: {e}");
-                    return true;
+        match (&mut *self).handle_event(evt).await {
+            Ok(None) => match self.show_popup {
+                Some(Popups::Log) => Ok((&mut self.log_screen).handle_event(evt).await?),
+                Some(Popups::License(_)) => {
+                    Ok((&mut self.license_screen).handle_event(evt).await?)
                 }
-            }
-        };
+                Some(Popups::Spoken(_)) => {
+                    Ok((&mut self.workshops_screen).handle_event(evt).await?)
+                }
+                None => match self.current_screen {
+                    Screens::Workshops => {
+                        Ok((&mut self.workshops_screen).handle_event(evt).await?)
+                    }
+                },
+            },
+            ret => ret,
+        }
+    }
 
+    pub async fn handle_ui_event(&mut self, ui_event: UiEvent) -> Result<bool, Error> {
         match ui_event {
-            UiEvent::Quit => return false,
+            UiEvent::Quit => return Ok(false),
             UiEvent::ShowLog => {
                 info!("showing log popup");
                 self.show_popup = Some(Popups::Log);
@@ -311,10 +285,28 @@ impl Ui<'_> {
                     error!("Failed to open URL: {}", e);
                 }
             }
-            UiEvent::SpokenLanguage => {}
-            UiEvent::ProgrammingLanguage => {}
+            UiEvent::ChangeSpokenLanguage => {
+                info!("Change spoken language");
+                self.to_engine.send(Message::ChangeSpokenLanguage).await?;
+            }
+            UiEvent::SelectSpokenLanguage(ref codes) => {
+                info!("Selecting spoken language");
+                self.show_popup = Some(Popups::Spoken(codes.clone()));
+            }
+            UiEvent::SetSpokenLanguage(code) => {
+                info!("Selected spoken language: {:?}", code);
+                self.to_engine
+                    .send(Message::SetSpokenLanguage { code })
+                    .await?;
+            }
+            UiEvent::ChangeProgrammingLanguage => {
+                info!("Change programming language");
+                self.to_engine
+                    .send(Message::ChangeProgrammingLanguage)
+                    .await?;
+            }
         }
-        true
+        Ok(true)
     }
 }
 
@@ -326,28 +318,21 @@ impl EventHandler for &mut Ui<'_> {
                 // These key bindings work on every screen
                 KeyCode::Char('q') | KeyCode::Char('Q') => {
                     info!("Quit");
-                    Ok(Some(UiEvent::Quit))
+                    return Ok(Some(UiEvent::Quit));
                 }
-                KeyCode::Char('b') | KeyCode::Esc => Ok(Some(UiEvent::Back)),
-                KeyCode::Char('`') => Ok(Some(UiEvent::ShowLog)),
+                KeyCode::Char('b') | KeyCode::Esc => return Ok(Some(UiEvent::Back)),
+                KeyCode::Char('`') => return Ok(Some(UiEvent::ShowLog)),
                 KeyCode::Char('s') | KeyCode::Char('S') => {
-                    info!("Change spoken language");
-                    self.to_engine.send(Message::ChangeSpokenLanguage).await?;
-                    Ok(Some(UiEvent::SpokenLanguage))
+                    return Ok(Some(UiEvent::ChangeSpokenLanguage))
                 }
                 KeyCode::Char('p') | KeyCode::Char('P') => {
-                    info!("Change programming language");
-                    self.to_engine
-                        .send(Message::ChangeProgrammingLanguage)
-                        .await?;
-                    Ok(Some(UiEvent::ProgrammingLanguage))
+                    return Ok(Some(UiEvent::ChangeProgrammingLanguage))
                 }
-                _ => Ok(None), // not handled at the top level
+                _ => {}
             },
-            _ => {
-                Ok(None) // not handled at the top level
-            }
+            _ => {}
         }
+        Ok(None)
     }
 }
 
@@ -367,8 +352,11 @@ impl Widget for &mut Ui<'_> {
             Some(Popups::Log) => {
                 StatefulWidget::render(&mut self.log_screen, area, buf, &mut self.log);
             }
-            Some(Popups::License(ref t)) => {
-                StatefulWidget::render(&mut self.license_screen, area, buf, &mut t.to_string());
+            Some(Popups::License(ref state)) => {
+                StatefulWidget::render(&mut self.license_screen, area, buf, &mut state.to_string());
+            }
+            Some(Popups::Spoken(ref mut state)) => {
+                StatefulWidget::render(&mut self.spoken_screen, area, buf, &mut state);
             }
             None => {}
         }

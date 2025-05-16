@@ -73,7 +73,7 @@ impl TryFrom<&str> for Code {
 macro_rules! generate_programming_enum {
     ($(($code:ident, $name:literal, $ext:literal)),* $(,)?) => {
         /// The list of language codes
-        #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+        #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
         pub enum Code {
             $(
                 #[allow(non_camel_case_types)]

@@ -1,3 +1,5 @@
+use languages::spoken;
+
 /// UI events
 #[derive(Clone, Debug)]
 pub enum Event {
@@ -12,7 +14,11 @@ pub enum Event {
     /// launch the browser with the given url
     Homepage(String),
     /// change the spoken language
-    SpokenLanguage,
+    ChangeSpokenLanguage,
+    /// select spoken language
+    SelectSpokenLanguage(Vec<spoken::Code>),
+    /// set the spoken language
+    SetSpokenLanguage(spoken::Code),
     /// change the programming language
-    ProgrammingLanguage,
+    ChangeProgrammingLanguage,
 }

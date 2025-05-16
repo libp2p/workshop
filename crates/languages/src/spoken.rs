@@ -95,7 +95,7 @@ impl std::fmt::Display for Direction {
 macro_rules! generate_spoken_enum {
     ($(($code:ident, $english:literal, $native:literal, $direction:ident)),* $(,)?) => {
         /// The list of language codes
-        #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+        #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
         pub enum Code {
             $(
                 #[allow(non_camel_case_types)]
