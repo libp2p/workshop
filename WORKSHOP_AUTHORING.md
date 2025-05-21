@@ -15,10 +15,11 @@ The following is an example of the file structure of a workshop. In this case th
 
 ```
 workshop-name/                          # Workshop root directory
-├── workshop.yaml                       # Workshop metadata
 ├── LICENSE                             # License text
+├── defaults.yaml                       # Specifies the default spoken and programming languages
 │
 ├── en/                                 # English version of the workshop
+│   ├── workshop.yaml                   # Workshop metadata in English
 │   ├── workshop.md                     # Workshop description in English
 │   │
 │   ├── rs/                             # Rust lessons in English
@@ -45,6 +46,7 @@ workshop-name/                          # Workshop root directory
 │   └── ...                             # Other programming language lessons in English
 │
 ├── jp/                                 # 日本語 version of the workshop
+│   ├── workshop.yaml                   # Workshop metadata in 日本語
 │   ├── workshop.md                     # Workshop description in 日本語
 │   │
 │   ├── py/                             # Python lessons in 日本語
@@ -70,16 +72,17 @@ workshop-name/                          # Workshop root directory
 │   │
 │   └── ...                             # Other programming language lessons in 日本語
 │
-├── hi/                                 # हिन्दीversion of the workshop
-│   ├── workshop.md                     # Workshop description in हिन्दी
+├── hi/                                 # Hindi version of the workshop
+│   ├── workshop.yaml                   # Workshop metadata in Hindi
+│   ├── workshop.md                     # Workshop description in Hindi
 │   │
-│   ├── py/                             # Python lessons in हिन्दी
-│   │   ├── setup.md                    # Setup instructions in हिन्दी
+│   ├── py/                             # Python lessons in Hindi
+│   │   ├── setup.md                    # Setup instructions in Hindi
 │   │   ├── deps.py                     # Dependencies check script
 │   │   │
 │   │   ├── 1-lesson-name/              # First lesson
 │   │   │   ├── lesson.yaml             # Lesson metadata
-│   │   │   ├── lesson.md               # Lesson content with hints in हिन्दी
+│   │   │   ├── lesson.md               # Lesson content with hints in Hindi
 │   │   │   ├── docker-compose.yaml     # Docker setup for testing
 │   │   │   ├── check.py                # Solution build/run/check script
 │   │   │   ├── tester1/                # First tester service
@@ -91,15 +94,15 @@ workshop-name/                          # Workshop root directory
 │   │   │
 │   │   └── ...                         # Additional lessons
 │   │
-│   ├── cs/                             # .Net lessons in हिन्दी
+│   ├── cs/                             # .Net lessons in Hindi
 │   │   └── ...
 │   │
-│   └── ...                             # Other programming language lessons in हिन्दी
+│   └── ...                             # Other programming language lessons in Hindi
 │
 └── ...                                 # Additional language versions of the workshop
 ```
 
-The `workshop.yaml` file in the root directory contains metadata about the workshop, including the title, authors, copyright, license, homepage, and difficulty level. The `workshop.md` file under the different spoken language folders contains the description of the workshop in the spoken language. The `setup.md` files in the different programming languages have the setup instructions specific to the programming language in the respective spoken language for the workshop. This is where you tell your users how to set up a project folder or clone a repo to work in. Tell them to switch into the project folder and re-run the `workshop` application to continue. The `LICENSE` file contains the text of the license that governs the conten of the workshop.
+The `defaults.yaml` file in the root folder specifies the default spoken and programming language for the workshop when the user has not specified their own defaults. The `workshop.yaml` file under the different spoken language folders contains metadata about the workshop, including the title, authors, copyright, license, homepage, and difficulty level in the specific language. The `workshop.md` file under the different spoken language folders contains the description of the workshop in the spoken language. The `setup.md` files in the different programming languages have the setup instructions specific to the programming language in the respective spoken language for the workshop. This is where you tell your users how to set up a project folder or clone a repo to work in. Tell them to switch into the project folder and re-run the `workshop` application to continue. The `LICENSE` file contains the text of the license that governs the conten of the workshop.
 
 Under each programming language folder, there is a `deps.py` Python script that gets executed when the workshop is selected. As a workshop author, you will need to implement this script to check that the required tools are properly installed on the user's system. The script should return a non-zero exit code if any of the required tools are not installed. The script should also print a message to the user indicating which tools are missing and how to install them. The output of the script is shown to the user before taking them to the lesson selection screen.
 
