@@ -1,21 +1,15 @@
 use crate::{
     ui::tui::screens,
-    ui::tui::{Event as UiEvent, EventHandler, Popups, Screens},
-    Config, Error,
+    ui::tui::{Event as UiEvent, Screen, Screens},
+    Error, LocalConfig,
 };
 use crossterm::event::{Event, EventStream, KeyCode};
 use engine::Message;
 use futures::{future::FutureExt, StreamExt};
 use futures_timer::Delay;
-use languages::{programming, spoken};
-use ratatui::{
-    buffer::Buffer,
-    layout::Rect,
-    widgets::{StatefulWidget, Widget},
-};
+use ratatui::{buffer::Buffer, layout::Rect, widgets::Widget};
 use std::{
-    collections::VecDeque,
-    path::{Path, PathBuf},
+    collections::HashMap,
     time::{Duration, Instant},
 };
 use tokio::{
@@ -25,63 +19,56 @@ use tokio::{
 use tracing::{error, info};
 
 /// Tui implementation of the UI
-pub struct Ui<'a> {
+pub struct Ui {
     /// The sender to the engine
     to_engine: Sender<Message>,
     /// The receiver from the engine
     from_engine: Receiver<Message>,
     /// The receiver from the logger
-    from_logger: Receiver<String>,
+    from_logger: Receiver<Message>,
     /// The configuration
-    config: Config,
-    /// The present working directory
-    pwd: PathBuf,
-    /// The last frame duration
+    config: LocalConfig,
+    /// The available screens - uses wrapper types with 'static lifetime
+    screens: HashMap<Screens, Box<dyn Screen>>,
+    /// the current screen
+    screen: Vec<Screens>,
+    /// the last frame duration
     last_frame_duration: Duration,
-    /// The log messages
-    log: VecDeque<String>,
-    /// The spoken language list state
-
-    /// show a popup
-    show_popup: Option<Popups>,
-    /// The log popup
-    log_screen: screens::Log<'a>,
-    /// the license popup
-    license_screen: screens::License<'a>,
-    /// The current screen
-    current_screen: Screens,
-    /// The screens
-    workshops_screen: screens::Workshops<'a>,
 }
 
-impl Ui<'_> {
+impl Ui {
     /// Create a new UI
     pub fn new(
         to_engine: Sender<Message>,
         from_engine: Receiver<Message>,
-        from_logger: Receiver<String>,
-        config: Config,
-        pwd: &Path,
-    ) -> Result<Self, Error> {
-        // screens
-        let workshops_screen = screens::Workshops::new(to_engine.clone());
-        let log_screen = screens::Log::default();
-        let license_screen = screens::License::default();
-
-        Ok(Self {
+        from_logger: Receiver<Message>,
+        config: LocalConfig,
+    ) -> Self {
+        let mut ui = Self {
             to_engine,
             from_engine,
             from_logger,
             config,
-            pwd: pwd.to_path_buf(),
-            last_frame_duration: Duration::from_millis(0),
-            log: VecDeque::new(),
-            show_popup: None,
-            log_screen,
-            license_screen,
-            current_screen: Screens::Workshops,
-            workshops_screen,
-        })
+            screens: HashMap::with_capacity(5),
+            screen: Vec::new(),
+            last_frame_duration: Duration::default(),
+        };
+
+        // Create screens hashmap
+        ui.screens
+            .insert(Screens::Workshops, Box::new(screens::Workshops::default()));
+        // TODO: pull max_log from config
+        ui.screens
+            .insert(Screens::Log, Box::new(screens::Log::new(1000)));
+        ui.screens
+            .insert(Screens::License, Box::new(screens::License::default()));
+        ui.screens
+            .insert(Screens::Spoken, Box::new(screens::Spoken::default()));
+        ui.screens.insert(
+            Screens::Programming,
+            Box::new(screens::Programming::default()),
+        );
+        ui
     }
 
     /// async run loop
@@ -93,7 +80,7 @@ impl Ui<'_> {
         let mut reader = EventStream::new();
 
         // set our timeout to ~16.67 ms (60 FPS)
-        let target_frame_duration = Duration::from_secs_f64(1.0 / 60.0);
+        let target_frame_duration = Duration::from_secs_f64(1.0 / 30.0);
 
         // initial timeout
         let mut timeout = Delay::new(target_frame_duration);
@@ -104,19 +91,13 @@ impl Ui<'_> {
         // the engine message received
         let mut engine_event: Option<Message> = None;
 
-        // the logger message received
-        let mut log_msg: Option<String> = None;
-
         // running
         let mut running = true;
 
         // send the config message to the engine
         self.to_engine
             .send(Message::Config {
-                data_dir: self.config.data_dir().to_path_buf(),
-                pwd: self.pwd.clone(),
-                spoken_language: self.config.spoken_language(),
-                programming_language: self.config.programming_language(),
+                config: Box::new(self.config.clone()),
             })
             .await?;
 
@@ -143,7 +124,7 @@ impl Ui<'_> {
                     engine_event = Some(msg);
                 }
                 Some(msg) = self.from_logger.recv() => {
-                    log_msg = Some(msg);
+                    engine_event = Some(msg);
                 }
                 _ = &mut timeout => {}
             }
@@ -152,26 +133,38 @@ impl Ui<'_> {
             let start = Instant::now();
 
             {
-                // do the actual work and time it
-                //
-                // add log line
-                if let Some(msg) = log_msg.take() {
-                    self.log.push_back(msg.clone());
-                    while self.log.len() > 1000 {
-                        self.log.pop_front();
-                    }
-                }
-
-                // handle the engine event
+                // handle the engine event and process ui updates
                 if let Some(msg) = engine_event.take() {
-                    if let Err(e) = self.on_message(&msg).await {
-                        error!("Error handling message: {e}");
+                    let to_engine = self.to_engine.clone();
+                    match self.handle_message(msg, to_engine).await {
+                        Ok(Some(ui_event)) => match self.handle_ui_event(ui_event).await {
+                            Ok(keep_going) => running = keep_going,
+                            Err(e) => {
+                                error!("Error handling UI event: {e}");
+                            }
+                        },
+                        Ok(None) => {}
+                        Err(e) => {
+                            error!("Error handling message: {e}");
+                        }
                     }
                 }
 
-                // handle the input event
+                // handle the input event and process ui updates
                 if let Some(evt) = input_event.take() {
-                    running = self.on_event(&evt).await;
+                    let to_engine = self.to_engine.clone();
+                    match self.handle_event(evt, to_engine).await {
+                        Ok(Some(ui_event)) => match self.handle_ui_event(ui_event).await {
+                            Ok(keep_going) => running = keep_going,
+                            Err(e) => {
+                                error!("Error handling UI event: {e}");
+                            }
+                        },
+                        Ok(None) => {}
+                        Err(e) => {
+                            error!("Error handling event: {e}");
+                        }
+                    }
                 }
 
                 // render the UI
@@ -207,77 +200,42 @@ impl Ui<'_> {
         Ok(())
     }
 
-    /// Handle messages from the engine
-    pub async fn on_message(&mut self, msg: &Message) -> Result<Option<UiEvent>, Error> {
-        match msg {
-            Message::SelectWorkshop { workshops } => {
-                self.current_screen = Screens::Workshops;
-                // Handle workshop selection
-                info!("Showing select workshop screen");
-                self.workshops_screen.set_workshops(workshops);
-            }
-            Message::SelectSpokenLanguage { spoken_languages } => {
-                // Handle spoken language selection
-                return Ok(Some(UiEvent::SelectSpokenLanguage(
-                    spoken_languages.clone(),
-                )));
-            }
-            Message::SelectProgrammingLanguage {
-                programming_languages,
-            } => {
-                // Handle programming language selection
-                info!("Select programming language: {:?}", programming_languages);
-                self.to_engine
-                    .send(Message::SetProgrammingLanguage {
-                        code: programming::Code::rs,
-                    })
-                    .await?;
-            }
-            _ => {
-                // Handle other messages
-                info!("Received message: {:?}", msg);
-            }
-        }
-        Ok(None)
-    }
-
-    /// Handle events from the input
-    pub async fn on_event(&mut self, evt: &Event) -> Result<Option<UiEvent>, Error> {
-        // get the next ui_event if there is one
-        match (&mut *self).handle_event(evt).await {
-            Ok(None) => match self.show_popup {
-                Some(Popups::Log) => Ok((&mut self.log_screen).handle_event(evt).await?),
-                Some(Popups::License(_)) => {
-                    Ok((&mut self.license_screen).handle_event(evt).await?)
-                }
-                Some(Popups::Spoken(_)) => {
-                    Ok((&mut self.workshops_screen).handle_event(evt).await?)
-                }
-                None => match self.current_screen {
-                    Screens::Workshops => {
-                        Ok((&mut self.workshops_screen).handle_event(evt).await?)
-                    }
-                },
-            },
-            ret => ret,
-        }
-    }
-
     pub async fn handle_ui_event(&mut self, ui_event: UiEvent) -> Result<bool, Error> {
         match ui_event {
-            UiEvent::Quit => return Ok(false),
-            UiEvent::ShowLog => {
-                info!("showing log popup");
-                self.show_popup = Some(Popups::Log);
-            }
-            UiEvent::ShowLicense(ref t) => {
-                info!("showing license popup");
-                self.show_popup = Some(Popups::License(t.clone()));
-            }
             UiEvent::Back => {
-                if self.show_popup.is_some() {
-                    info!("closing popup");
-                    self.show_popup = None;
+                if !self.screen.is_empty() {
+                    self.to_engine.send(Message::Back).await?;
+                    info!("going back to previous screen");
+                    self.screen.pop();
+                }
+            }
+            UiEvent::Quit => {
+                self.to_engine.send(Message::Quit).await?;
+                return Ok(false);
+            }
+            UiEvent::SelectWorkshop => {
+                info!("showing workshop selection screen");
+                if self.screen.last() != Some(&Screens::Spoken) {
+                    // show the workshop selection screen
+                    self.screen.push(Screens::Workshops);
+                }
+            }
+            UiEvent::SetWorkshop(ref workshop) => {
+                info!("workshop selected: {}", workshop);
+            }
+            UiEvent::ToggleLog => {
+                if self.screen.last() != Some(&Screens::Log) {
+                    info!("showing log screen");
+                    self.screen.push(Screens::Log);
+                } else {
+                    info!("hiding log screen");
+                    self.screen.pop();
+                }
+            }
+            UiEvent::ShowLicense => {
+                if self.screen.last() != Some(&Screens::License) {
+                    info!("showing license popup");
+                    self.screen.push(Screens::License);
                 }
             }
             UiEvent::Homepage(url) => {
@@ -287,23 +245,50 @@ impl Ui<'_> {
             }
             UiEvent::ChangeSpokenLanguage => {
                 info!("Change spoken language");
+                if self.screen.last() != Some(&Screens::Spoken) {
+                    // show the spoken language selection screen
+                    self.screen.push(Screens::Spoken);
+                }
+                // send the message to the engine to get the list of spoken languages back
                 self.to_engine.send(Message::ChangeSpokenLanguage).await?;
             }
-            UiEvent::SelectSpokenLanguage(ref codes) => {
+            UiEvent::SelectSpokenLanguage => {
                 info!("Selecting spoken language");
-                self.show_popup = Some(Popups::Spoken(codes.clone()));
             }
-            UiEvent::SetSpokenLanguage(code) => {
+            UiEvent::SetSpokenLanguage { code, set_default } => {
                 info!("Selected spoken language: {:?}", code);
-                self.to_engine
-                    .send(Message::SetSpokenLanguage { code })
-                    .await?;
+                if set_default {
+                    info!("Saving spoken language as default");
+                    self.config.set_spoken_language(code)?;
+                }
+                // close the spoken language selection screen
+                if let Some(Screens::Spoken) = self.screen.last() {
+                    self.screen.pop();
+                }
             }
             UiEvent::ChangeProgrammingLanguage => {
                 info!("Change programming language");
+                if self.screen.last() != Some(&Screens::Programming) {
+                    // show the programming language selection screen
+                    self.screen.push(Screens::Programming);
+                }
                 self.to_engine
                     .send(Message::ChangeProgrammingLanguage)
                     .await?;
+            }
+            UiEvent::SelectProgrammingLanguage => {
+                info!("Selecting programming language");
+            }
+            UiEvent::SetProgrammingLanguage { code, set_default } => {
+                info!("Selected programming language: {:?}", code);
+                if set_default {
+                    info!("Saving programming language as default");
+                    self.config.set_programming_language(code)?;
+                }
+                // close the programming language selection screen
+                if let Some(Screens::Programming) = self.screen.last() {
+                    self.screen.pop();
+                }
             }
         }
         Ok(true)
@@ -311,54 +296,102 @@ impl Ui<'_> {
 }
 
 #[async_trait::async_trait]
-impl EventHandler for &mut Ui<'_> {
-    async fn handle_event(&mut self, evt: &Event) -> Result<Option<UiEvent>, Error> {
-        match evt {
-            Event::Key(key) => match key.code {
+impl Screen for Ui {
+    async fn handle_event(
+        &mut self,
+        evt: Event,
+        to_engine: Sender<Message>,
+    ) -> Result<Option<UiEvent>, Error> {
+        if let Event::Key(key) = evt {
+            match key.code {
                 // These key bindings work on every screen
-                KeyCode::Char('q') | KeyCode::Char('Q') => {
-                    info!("Quit");
-                    return Ok(Some(UiEvent::Quit));
+                KeyCode::Char('q') | KeyCode::Char('Q') => return Ok(Some(UiEvent::Quit)),
+                KeyCode::Char('`') => return Ok(Some(UiEvent::ToggleLog)),
+                _ => {
+                    // pass the key events to the current screen
+                    if let Some(screen_type) = self.screen.last() {
+                        if let Some(screen_state) = self.screens.get_mut(screen_type) {
+                            return screen_state.handle_event(evt, to_engine).await;
+                        } else {
+                            error!("Unknown screen: {:?}", screen_type);
+                        }
+                    }
                 }
-                KeyCode::Char('b') | KeyCode::Esc => return Ok(Some(UiEvent::Back)),
-                KeyCode::Char('`') => return Ok(Some(UiEvent::ShowLog)),
-                KeyCode::Char('s') | KeyCode::Char('S') => {
-                    return Ok(Some(UiEvent::ChangeSpokenLanguage))
-                }
-                KeyCode::Char('p') | KeyCode::Char('P') => {
-                    return Ok(Some(UiEvent::ChangeProgrammingLanguage))
-                }
-                _ => {}
-            },
-            _ => {}
+            }
         }
         Ok(None)
     }
+
+    async fn handle_message(
+        &mut self,
+        msg: Message,
+        to_engine: Sender<Message>,
+    ) -> Result<Option<UiEvent>, Error> {
+        // the log screen is a special case, it handles log messages always
+        if let Message::Log { .. } = msg {
+            // log the message
+            if let Some(screen) = self.screens.get_mut(&Screens::Log) {
+                return screen.handle_message(msg, to_engine).await;
+            }
+        }
+
+        if self.screen.is_empty() {
+            // the engine might need to ask the user for their spoken and/or programming languages
+            // before we have any other screen set up. so if screen is empty and we get either of
+            // these messages we need to show the correct screen before processing the message
+            // below so that the screen will get the message.
+            match msg {
+                Message::SelectSpokenLanguage { .. } => {
+                    // show the spoken language selection screen before the message is processed
+                    self.screen.push(Screens::Spoken);
+                }
+                Message::SelectProgrammingLanguage { .. } => {
+                    // show the programming language selection screen before the message is processed
+                    self.screen.push(Screens::Programming);
+                }
+                Message::SelectWorkshop { .. } => {
+                    // show the workshop selection screen before the message is processed
+                    self.screen.push(Screens::Workshops);
+                }
+                Message::SelectLesson { .. } => {
+                    // show the lesson selection screen before the message is processed
+                    self.screen.push(Screens::Lessons);
+                }
+                _ => {}
+            }
+        }
+
+        // pass the message to the current screen
+        if let Some(screen_type) = self.screen.last() {
+            if let Some(screen) = self.screens.get_mut(screen_type) {
+                return screen.handle_message(msg, to_engine).await;
+            } else {
+                error!("Unknown screen: {:?}", screen_type);
+            }
+        }
+        Ok(None)
+    }
+
+    fn render_screen(
+        &mut self,
+        area: Rect,
+        buf: &mut Buffer,
+        last_frame_duration: Duration,
+    ) -> Result<(), Error> {
+        // render the current screen
+        if let Some(screen_type) = self.screen.last() {
+            if let Some(screen) = self.screens.get_mut(screen_type) {
+                screen.render_screen(area, buf, last_frame_duration)?;
+            } else {
+                error!("Unknown screen: {:?}", screen_type);
+            }
+        }
+        Ok(())
+    }
 }
 
-impl Widget for &mut Ui<'_> {
+impl Widget for &mut Ui {
     fn render(self, area: Rect, buf: &mut Buffer) {
-        match self.current_screen {
-            Screens::Workshops => {
-                StatefulWidget::render(
-                    &mut self.workshops_screen,
-                    area,
-                    buf,
-                    &mut self.last_frame_duration,
-                );
-            }
-        }
-        match self.show_popup {
-            Some(Popups::Log) => {
-                StatefulWidget::render(&mut self.log_screen, area, buf, &mut self.log);
-            }
-            Some(Popups::License(ref state)) => {
-                StatefulWidget::render(&mut self.license_screen, area, buf, &mut state.to_string());
-            }
-            Some(Popups::Spoken(ref mut state)) => {
-                StatefulWidget::render(&mut self.spoken_screen, area, buf, &mut state);
-            }
-            None => {}
-        }
+        let _ = self.render_screen(area, buf, self.last_frame_duration);
     }
 }

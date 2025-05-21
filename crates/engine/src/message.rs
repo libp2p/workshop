@@ -1,60 +1,75 @@
-use crate::Workshop;
+use crate::{Config, Lesson, Workshop};
 use languages::{programming, spoken};
-use std::{collections::HashMap, path::PathBuf};
+use std::collections::HashMap;
 
 /// Engine messages
-#[derive(Clone, Debug)]
 pub enum Message {
-    /// Configuration message
+    /// Log message  UI <-- Engine
+    Log { msg: String },
+    /// Configuration message  UI --> Engine
     Config {
-        /// data directory
-        data_dir: PathBuf,
-        /// present working directory
-        pwd: PathBuf,
-        /// preferred spoken language
-        spoken_language: spoken::Code,
-        /// preferred programming language
-        programming_language: programming::Code,
+        config: Box<dyn Config + Send + 'static>,
     },
-    /// Select workshop
+    /// Select workshop  UI <-- Engine
     SelectWorkshop {
         /// supported workshops
         workshops: HashMap<String, Workshop>,
     },
-    /// Set workshop
+    /// Set workshop  UI --> Engine
     SetWorkshop {
-        /// workshop name
+        /// workshop key
         name: String,
     },
-    /// Change spoken language
+    /// Select lesson  UI <-- Engine
+    SelectLesson {
+        /// supported lessons
+        lessons: Vec<Lesson>,
+    },
+    /// Get the license text  UI --> Engine
+    GetLicense {
+        /// workshop key
+        name: String,
+    },
+    /// License  UI <-- Engine
+    ShowLicense {
+        /// license text
+        text: String,
+    },
+    /// Change spoken language  UI --> Engine
     ChangeSpokenLanguage,
-    /// Select spoken language
+    /// Select spoken language  UI <-- Engine
     SelectSpokenLanguage {
         /// supported spoken languages
         spoken_languages: Vec<spoken::Code>,
+        /// set the selection as default
+        set_default: bool,
     },
-    /// Set spoken language
+    /// Set spoken language  UI --> Engine
     SetSpokenLanguage {
         /// spoken language
         code: spoken::Code,
     },
-    /// Change programming language
+    /// Change programming language  UI --> Engine
     ChangeProgrammingLanguage,
-    /// Select programming language
+    /// Select programming language  UI <-- Engine
     SelectProgrammingLanguage {
         /// supported programming languages
         programming_languages: Vec<programming::Code>,
+        /// set the selection as default
+        set_default: bool,
     },
-    /// Set programming language
+    /// Set programming language  UI --> Engine
     SetProgrammingLanguage {
         /// programming language
         code: programming::Code,
     },
-    /// An error occured
+    /// An error occured  UI <-- Engine
     Error {
         /// the error
         error: String,
     },
-    /// Quit
+    /// Go back a state
+    Back,
+    /// Quit   UI --> Engine
     Quit,
 }

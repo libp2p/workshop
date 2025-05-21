@@ -1,4 +1,4 @@
-use crate::Error;
+use crate::{Error, Message};
 use std::{
     fmt,
     fs::{File, OpenOptions},
@@ -15,7 +15,7 @@ use tracing_subscriber::{
 
 // Custom tracing layer to send log events over mpsc
 struct MpscLayer {
-    sender: Sender<String>,
+    sender: Sender<Message>,
     file: Option<File>,
 }
 
@@ -48,7 +48,7 @@ where
         writeln!(f, "{msg}").unwrap();
         f.flush().unwrap();
 
-        let _ = self.sender.try_send(msg.clone());
+        let _ = self.sender.try_send(Message::Log { msg });
     }
 }
 
@@ -58,7 +58,7 @@ pub struct Log;
 
 impl Log {
     /// Starts the logger and returns the task handle and receiver for the log messages.
-    pub fn init() -> Result<Receiver<String>, Error> {
+    pub fn init() -> Result<Receiver<Message>, Error> {
         let (sender, receiver) = mpsc::channel(16);
         let file = Some(
             OpenOptions::new()

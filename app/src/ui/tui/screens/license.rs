@@ -1,8 +1,9 @@
 use crate::{
-    ui::tui::{widgets::ScrollText, Event as UiEvent, EventHandler},
+    ui::tui::{widgets::ScrollText, Event as UiEvent, Screen},
     Error,
 };
 use crossterm::event::{Event, KeyCode};
+use engine::Message;
 use ratatui::{
     buffer::Buffer,
     layout::{Alignment, Constraint, Flex, Layout, Offset, Rect},
@@ -10,17 +11,47 @@ use ratatui::{
     text::Line,
     widgets::{Block, Borders, Clear, Padding, Paragraph, StatefulWidget, Widget, Wrap},
 };
+use std::time::Duration;
+use tokio::sync::mpsc::Sender;
+use tracing::info;
 
 #[derive(Clone, Debug, Default)]
 pub struct License<'a> {
+    /// license text
+    text: String,
+    /// the cached rect from last render
+    area: Rect,
+    /// the cached calculated rect
+    centered: Rect,
     /// scroll text widget
     st: ScrollText<'a>,
 }
 
 impl License<'_> {
+    /// set the license text
+    pub fn set_license(&mut self, text: String) {
+        self.text = text;
+    }
+
+    fn recalculate_rect(&mut self, area: Rect) {
+        if self.area != area {
+            let [_, hc, _] = Layout::horizontal([
+                Constraint::Percentage(10),
+                Constraint::Min(1),
+                Constraint::Percentage(10),
+            ])
+            .areas(area);
+            [_, self.centered, _] = Layout::vertical([
+                Constraint::Percentage(10),
+                Constraint::Min(1),
+                Constraint::Percentage(10),
+            ])
+            .areas(hc);
+        }
+    }
+
     // render the log messages
-    fn render_license(&mut self, area: Rect, buf: &mut Buffer, text: &str) {
-        // clear popup area
+    fn render_license(&mut self, area: Rect, buf: &mut Buffer) {
         Widget::render(Clear, area, buf);
 
         // render the list of license lines
@@ -35,7 +66,7 @@ impl License<'_> {
             .style(Style::default().fg(Color::White).bg(Color::Black));
 
         // render the scroll text
-        StatefulWidget::render(&mut self.st, area, buf, &mut text.to_string());
+        StatefulWidget::render(&mut self.st, area, buf, &mut self.text);
     }
 
     // render the status bar at the bottom
@@ -57,13 +88,18 @@ impl License<'_> {
 }
 
 #[async_trait::async_trait]
-impl EventHandler for &mut License<'_> {
+impl Screen for License<'_> {
     /// handle an input event
-    async fn handle_event(&mut self, evt: &Event) -> Result<Option<UiEvent>, Error> {
+    async fn handle_event(
+        &mut self,
+        evt: Event,
+        _to_engine: Sender<Message>,
+    ) -> Result<Option<UiEvent>, Error> {
         if let Event::Key(key) = evt {
             match key.code {
                 KeyCode::PageUp => self.st.scroll_top(),
                 KeyCode::PageDown => self.st.scroll_bottom(),
+                KeyCode::Char('b') | KeyCode::Esc => return Ok(Some(UiEvent::Back)),
                 KeyCode::Char('j') | KeyCode::Down => self.st.scroll_down(),
                 KeyCode::Char('k') | KeyCode::Up => self.st.scroll_up(),
                 _ => {}
@@ -71,32 +107,35 @@ impl EventHandler for &mut License<'_> {
         }
         Ok(None)
     }
-}
 
-impl StatefulWidget for &mut License<'_> {
-    type State = String;
+    async fn handle_message(
+        &mut self,
+        msg: Message,
+        _to_engine: Sender<Message>,
+    ) -> Result<Option<UiEvent>, Error> {
+        if let Message::ShowLicense { text } = msg {
+            info!("Showing license screen");
+            self.set_license(text.to_string());
+            return Ok(Some(UiEvent::ShowLicense));
+        }
+        Ok(None)
+    }
 
-    fn render(self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
-        let [_, hc, _] = Layout::horizontal([
-            Constraint::Percentage(10),
-            Constraint::Min(1),
-            Constraint::Percentage(10),
-        ])
-        .areas(area);
-        let [_, centered, _] = Layout::vertical([
-            Constraint::Percentage(10),
-            Constraint::Min(1),
-            Constraint::Percentage(10),
-        ])
-        .areas(hc);
+    fn render_screen(
+        &mut self,
+        area: Rect,
+        buf: &mut Buffer,
+        _last_frame_duration: Duration,
+    ) -> Result<(), Error> {
+        self.recalculate_rect(area);
 
         // clear area around the popup
-        Widget::render(Clear, centered, buf);
+        Widget::render(Clear, self.centered, buf);
 
         let centered_block = Block::default()
             .padding(Padding::uniform(2))
             .borders(Borders::NONE);
-        let working_area = centered_block.inner(centered);
+        let working_area = centered_block.inner(self.centered);
 
         // draw drop shadow
         let mut shadow_area = working_area;
@@ -106,12 +145,13 @@ impl StatefulWidget for &mut License<'_> {
             .border_style(Style::default().fg(Color::DarkGray).bg(Color::DarkGray));
         Widget::render(block, shadow_area, buf);
 
-        let [log_area, status_area] =
+        let [license_area, status_area] =
             Layout::vertical([Constraint::Percentage(100), Constraint::Min(1)])
                 .flex(Flex::End)
                 .areas(working_area);
 
-        self.render_license(log_area, buf, state);
+        self.render_license(license_area, buf);
         self.render_status(status_area, buf);
+        Ok(())
     }
 }

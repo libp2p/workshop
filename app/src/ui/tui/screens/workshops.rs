@@ -1,5 +1,5 @@
 use crate::{
-    ui::tui::{widgets::ScrollText, Event as UiEvent, EventHandler},
+    ui::tui::{widgets::ScrollText, Event as UiEvent, Screen},
     Error,
 };
 use crossterm::event::{Event, KeyCode};
@@ -21,40 +21,48 @@ enum FocusedView {
     Info,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct Workshops<'a> {
-    /// channel to the engine
-    to_engine: Sender<Message>,
     /// the list of workshops
     workshops: HashMap<String, Workshop>,
+    /// the cached list
+    titles: List<'a>,
     /// the list state of workshop title
     titles_state: ListState,
-    /// the scrollable info window
+    /// the scrollable info window - requires lifetime for Block
     st: ScrollText<'a>,
     /// currently focused view
     focused: FocusedView,
 }
 
 impl Workshops<'_> {
-    /// Create a new log screen
-    pub fn new(to_engine: Sender<Message>) -> Self {
-        Self {
-            to_engine,
-            workshops: HashMap::new(),
-            titles_state: ListState::default(),
-            st: ScrollText::default(),
-            focused: FocusedView::List,
-        }
-    }
-
     /// set the workshops
     pub fn set_workshops(&mut self, workshops: &HashMap<String, Workshop>) {
         self.workshops = workshops.clone();
+
         if self.workshops.is_empty() {
             self.titles_state.select(None);
         } else {
             self.titles_state.select_first();
         };
+
+        // update the cached names
+        let workshop_names = self
+            .get_workshop_keys()
+            .iter()
+            .map(|name| self.workshops.get(name).unwrap().title.clone())
+            .collect::<Vec<_>>();
+
+        // create the list of workshop titles
+        self.titles = List::new(workshop_names)
+            .highlight_style(
+                Style::default()
+                    .fg(Color::Black)
+                    .bg(Color::White)
+                    .add_modifier(Modifier::BOLD),
+            )
+            .style(Style::default().fg(Color::White))
+            .highlight_symbol("> ");
     }
 
     // get the selected workshop key
@@ -80,14 +88,6 @@ impl Workshops<'_> {
         workshop_keys
     }
 
-    /// get the workshop titles sorted by keys
-    fn get_workshop_names(&self) -> Vec<String> {
-        self.get_workshop_keys()
-            .iter()
-            .map(|name| self.workshops.get(name).unwrap().title.clone())
-            .collect::<Vec<_>>()
-    }
-
     /// render the workshop list and info
     fn render_workshops(&mut self, area: Rect, buf: &mut Buffer) {
         let [workshop_titles_area, workshop_info_area] =
@@ -104,33 +104,21 @@ impl Workshops<'_> {
             return;
         }
 
+        // figure out the titles list border fg color based on what is focused
         let fg = match self.focused {
             FocusedView::List => Color::White,
             FocusedView::Info => Color::DarkGray,
         };
 
-        // build a Text from workshop titles
-        let workshop_names = self.get_workshop_names();
+        let titles = self.titles.clone().block(
+            Block::default()
+                .title(" Workshops ")
+                .padding(Padding::horizontal(1))
+                .style(Style::default().fg(fg))
+                .borders(Borders::ALL),
+        );
 
-        // create the list of workshop titles
-        let list = List::new(workshop_names)
-            .block(
-                Block::default()
-                    .title(" Workshops ")
-                    .padding(Padding::horizontal(1))
-                    .style(Style::default().fg(fg))
-                    .borders(Borders::ALL),
-            )
-            .highlight_style(
-                Style::default()
-                    .fg(Color::Black)
-                    .bg(Color::White)
-                    .add_modifier(Modifier::BOLD),
-            )
-            .style(Style::default().fg(Color::White))
-            .highlight_symbol("> ");
-
-        StatefulWidget::render(list, area, buf, &mut self.titles_state);
+        StatefulWidget::render(&titles, area, buf, &mut self.titles_state);
     }
 
     /// render the workshop info
@@ -158,10 +146,12 @@ impl Workshops<'_> {
         details.push_str(&workshop.homepage);
         details.push_str("\nDifficulty: ");
         details.push_str(&workshop.difficulty);
+        /*
         details.push_str("\n\n");
         details.push_str(&workshop.description);
         details.push_str("\n\n");
         details.push_str(&workshop.setup);
+        */
 
         let fg = match self.focused {
             FocusedView::List => Color::DarkGray,
@@ -183,13 +173,13 @@ impl Workshops<'_> {
     }
 
     // render the status bar at the bottom
-    fn render_status(&mut self, area: Rect, buf: &mut Buffer, state: &mut Duration) {
+    fn render_status(&mut self, area: Rect, buf: &mut Buffer, last_frame_duration: Duration) {
         // render the status bar at the bottom
         let [keys_area, fps_area] =
-            Layout::horizontal([Constraint::Min(1), Constraint::Length(12)]).areas(area);
+            Layout::horizontal([Constraint::Min(1), Constraint::Length(20)]).areas(area);
 
         self.render_keys(keys_area, buf);
-        self.render_fps(fps_area, buf, state);
+        self.render_fps(fps_area, buf, last_frame_duration);
     }
 
     // render the keyboard shortcuts
@@ -198,9 +188,12 @@ impl Workshops<'_> {
             .borders(Borders::NONE)
             .padding(Padding::horizontal(1));
 
-        let keys = Paragraph::new(
-                "↓/↑ or j/k: scroll  |  tab: switch focus  |  enter: select\nw: homepage  |  l: license  |  s: spoken lang  |  p: programming lang  |  q: quit"
-            )
+        let lines = [
+            "↓/↑ or j/k: scroll  |  tab: switch focus  |  enter: select",
+            "w: homepage  |  l: license  |  s: spoken lang  |  p: programming lang  |  q: quit",
+        ];
+
+        let keys = Paragraph::new(lines.join("\n"))
             .block(block)
             .style(Style::default().fg(Color::Black).bg(Color::White))
             .wrap(Wrap { trim: false })
@@ -210,21 +203,28 @@ impl Workshops<'_> {
     }
 
     // render the frames per second
-    fn render_fps(&mut self, area: Rect, buf: &mut Buffer, state: &mut Duration) {
+    fn render_fps(&mut self, area: Rect, buf: &mut Buffer, last_frame_duration: Duration) {
         let fps = Block::default()
             .borders(Borders::NONE)
             .style(Style::default().fg(Color::Black).bg(Color::White))
             .title_alignment(Alignment::Right)
             .padding(Padding::horizontal(1))
-            .title_bottom(format!("FPS: {:.2} ", 1.0 / state.as_secs_f64()));
+            .title_bottom(format!(
+                "FPS: {:.2} ",
+                1.0 / last_frame_duration.as_secs_f64()
+            ));
 
         Widget::render(fps, area, buf);
     }
 }
 
 #[async_trait::async_trait]
-impl EventHandler for &mut Workshops<'_> {
-    async fn handle_event(&mut self, evt: &Event) -> Result<Option<UiEvent>, Error> {
+impl Screen for Workshops<'_> {
+    async fn handle_event(
+        &mut self,
+        evt: Event,
+        to_engine: Sender<Message>,
+    ) -> Result<Option<UiEvent>, Error> {
         if let Event::Key(key) = evt {
             match key.code {
                 KeyCode::PageUp => match self.focused {
@@ -241,10 +241,19 @@ impl EventHandler for &mut Workshops<'_> {
                     FocusedView::Info => self.st.scroll_up(),
                 },
                 KeyCode::Char('l') | KeyCode::Char('L') => {
-                    if let Some(workshop) = self.get_selected_workshop() {
-                        info!("Show license");
-                        return Ok(Some(UiEvent::ShowLicense(workshop.license_text.clone())));
+                    if let Some(workshop_key) = self.get_selected_workshop_key() {
+                        info!("Get license: {}", workshop_key);
+                        to_engine
+                            .send(Message::GetLicense { name: workshop_key })
+                            .await?;
+                        return Ok(Some(UiEvent::ShowLicense));
                     }
+                }
+                KeyCode::Char('p') | KeyCode::Char('P') => {
+                    return Ok(Some(UiEvent::ChangeProgrammingLanguage))
+                }
+                KeyCode::Char('s') | KeyCode::Char('S') => {
+                    return Ok(Some(UiEvent::ChangeSpokenLanguage))
                 }
                 KeyCode::Char('w') | KeyCode::Char('W') => {
                     if let Some(workshop) = self.get_selected_workshop() {
@@ -262,9 +271,12 @@ impl EventHandler for &mut Workshops<'_> {
                 KeyCode::Enter => {
                     if let Some(workshop_key) = self.get_selected_workshop_key() {
                         info!("Workshop selected: {}", workshop_key);
-                        self.to_engine
-                            .send(Message::SetWorkshop { name: workshop_key })
+                        to_engine
+                            .send(Message::SetWorkshop {
+                                name: workshop_key.clone(),
+                            })
                             .await?;
+                        return Ok(Some(UiEvent::SetWorkshop(workshop_key)));
                     }
                 }
                 _ => {}
@@ -273,12 +285,26 @@ impl EventHandler for &mut Workshops<'_> {
 
         Ok(None)
     }
-}
 
-impl StatefulWidget for &mut Workshops<'_> {
-    type State = Duration;
+    async fn handle_message(
+        &mut self,
+        msg: Message,
+        _to_engine: Sender<Message>,
+    ) -> Result<Option<UiEvent>, Error> {
+        if let Message::SelectWorkshop { workshops } = msg {
+            info!("Showing select workshop screen");
+            self.set_workshops(&workshops);
+            return Ok(Some(UiEvent::SelectWorkshop));
+        }
+        Ok(None)
+    }
 
-    fn render(self, area: Rect, buf: &mut ratatui::buffer::Buffer, state: &mut Self::State) {
+    fn render_screen(
+        &mut self,
+        area: Rect,
+        buf: &mut Buffer,
+        last_frame_duration: Duration,
+    ) -> Result<(), Error> {
         // this splits the screen into a top area and a one-line bottom area
         let [workshops_area, status_area] =
             Layout::vertical([Constraint::Percentage(100), Constraint::Min(2)])
@@ -286,6 +312,8 @@ impl StatefulWidget for &mut Workshops<'_> {
                 .areas(area);
 
         self.render_workshops(workshops_area, buf);
-        self.render_status(status_area, buf, state);
+        self.render_status(status_area, buf, last_frame_duration);
+
+        Ok(())
     }
 }

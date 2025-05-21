@@ -4,7 +4,7 @@ use crate::{
 };
 use crossterm::event::{Event, KeyCode};
 use engine::Message;
-use languages::spoken;
+use languages::programming;
 use ratatui::{
     buffer::Buffer,
     layout::{Alignment, Constraint, Flex, Layout, Offset, Rect},
@@ -18,9 +18,9 @@ use tokio::sync::mpsc::Sender;
 use tracing::info;
 
 #[derive(Clone, Debug, Default)]
-pub struct Spoken<'a> {
-    /// the spoken language list
-    spoken_languages: Vec<spoken::Code>,
+pub struct Programming<'a> {
+    /// the programming language list
+    programming_languages: Vec<programming::Code>,
     /// whether their selection sets the default value
     set_default: bool,
     /// the cached rect from last render
@@ -29,24 +29,28 @@ pub struct Spoken<'a> {
     centered: Rect,
     /// the cached list
     list: List<'a>,
-    /// spoken language list state
+    /// programming language list state
     list_state: ListState,
 }
 
-impl Spoken<'_> {
-    /// set the spoken language list
-    pub fn set_spoken_languages(&mut self, spoken_languages: &[spoken::Code], set_default: bool) {
-        self.spoken_languages = spoken_languages.to_vec();
+impl Programming<'_> {
+    /// set the programming language list
+    pub fn set_programming_languages(
+        &mut self,
+        programming_languages: &[programming::Code],
+        set_default: bool,
+    ) {
+        self.programming_languages = programming_languages.to_vec();
         self.set_default = set_default;
-        let spoken_language_names = spoken_languages
+        let programming_language_names = programming_languages
             .iter()
-            .map(|code| code.get_name_in_english().to_string())
+            .map(|code| code.get_name().to_string())
             .collect::<Vec<_>>();
         self.list_state.select(Some(0));
-        self.list = List::new(spoken_language_names)
+        self.list = List::new(programming_language_names)
             .block(
                 Block::default()
-                    .title(" Spoken Languages ")
+                    .title(" Programming Languages ")
                     .padding(Padding::horizontal(1))
                     .style(Style::default().fg(Color::White))
                     .borders(Borders::ALL),
@@ -106,7 +110,7 @@ impl Spoken<'_> {
 }
 
 #[async_trait::async_trait]
-impl Screen for Spoken<'_> {
+impl Screen for Programming<'_> {
     /// handle an input event
     async fn handle_event(
         &mut self,
@@ -122,17 +126,15 @@ impl Screen for Spoken<'_> {
                 KeyCode::Char('k') | KeyCode::Up => self.list_state.select_previous(),
                 KeyCode::Enter => {
                     if let Some(selected) = self.list_state.selected() {
-                        if let Some(code) = self.spoken_languages.get(selected) {
-                            info!("Spoken language selected: {:?}", code);
+                        if let Some(code) = self.programming_languages.get(selected) {
+                            info!("Programming language selected: {:?}", code);
                             to_engine
-                                .send(Message::SetSpokenLanguage { code: *code })
+                                .send(Message::SetProgrammingLanguage { code: *code })
                                 .await?;
-                            return Ok(Some(UiEvent::SetSpokenLanguage {
+                            return Ok(Some(UiEvent::SetProgrammingLanguage {
                                 code: *code,
                                 set_default: self.set_default,
                             }));
-                        } else {
-                            info!("No spoken language selected");
                         }
                     }
                 }
@@ -147,15 +149,14 @@ impl Screen for Spoken<'_> {
         msg: Message,
         _to_engine: Sender<Message>,
     ) -> Result<Option<UiEvent>, Error> {
-        if let Message::SelectSpokenLanguage {
-            spoken_languages,
+        if let Message::SelectProgrammingLanguage {
+            programming_languages,
             set_default,
         } = msg
         {
-            info!("Select spoken language: {:?}", spoken_languages);
-            self.set_spoken_languages(&spoken_languages, set_default);
-            // Handle spoken language selection
-            return Ok(Some(UiEvent::SelectSpokenLanguage));
+            info!("Select programming language: {:?}", programming_languages);
+            self.set_programming_languages(&programming_languages, set_default);
+            return Ok(Some(UiEvent::SelectProgrammingLanguage));
         }
         Ok(None)
     }

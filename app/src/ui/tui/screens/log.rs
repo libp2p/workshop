@@ -1,8 +1,9 @@
 use crate::{
-    ui::tui::{widgets::ScrollText, Event as UiEvent, EventHandler},
+    ui::tui::{widgets::ScrollText, Event as UiEvent, Screen},
     Error,
 };
 use crossterm::event::{Event, KeyCode};
+use engine::Message;
 use ratatui::{
     buffer::Buffer,
     layout::{Alignment, Constraint, Flex, Layout, Offset, Rect},
@@ -10,25 +11,76 @@ use ratatui::{
     text::Line,
     widgets::{Block, Borders, Clear, Padding, Paragraph, StatefulWidget, Widget, Wrap},
 };
-use std::collections::VecDeque;
+use std::{collections::VecDeque, time::Duration};
+use tokio::sync::mpsc::Sender;
 
 #[derive(Clone, Debug)]
 pub struct Log<'a> {
+    /// the log messages
+    log: VecDeque<String>,
+    /// max log length
+    max_log: usize,
+    /// the cached merged log messages
+    text: String,
     /// scroll text widget
     st: ScrollText<'a>,
-}
-
-impl Default for Log<'_> {
-    fn default() -> Self {
-        let mut st = ScrollText::default();
-        st.scroll_bottom();
-        Self { st }
-    }
+    /// the cached rect from last render
+    area: Rect,
+    /// the cached calculated rect
+    centered: Rect,
 }
 
 impl Log<'_> {
+    /// Create a new log Screen
+    pub fn new(max_log: usize) -> Self {
+        let mut st = ScrollText::default();
+        st.scroll_bottom();
+        Self {
+            log: VecDeque::default(),
+            max_log,
+            text: String::new(),
+            st,
+            area: Rect::default(),
+            centered: Rect::default(),
+        }
+    }
+
+    fn recalculate_rect(&mut self, area: Rect) {
+        if self.area != area {
+            let [_, hc, _] = Layout::horizontal([
+                Constraint::Percentage(10),
+                Constraint::Min(1),
+                Constraint::Percentage(10),
+            ])
+            .areas(area);
+            [_, self.centered, _] = Layout::vertical([
+                Constraint::Percentage(10),
+                Constraint::Min(1),
+                Constraint::Percentage(10),
+            ])
+            .areas(hc);
+        }
+    }
+
+    fn add_message(&mut self, msg: String) {
+        // add the message to the log
+        self.log.push_back(msg);
+        // if the log is too long, remove the oldest message
+        if self.log.len() > self.max_log {
+            self.log.pop_front();
+        }
+
+        // combine the log lines into a single string
+        self.text = self
+            .log
+            .iter()
+            .map(|line| line.as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+    }
+
     // render the log messages
-    fn render_log(&mut self, area: Rect, buf: &mut Buffer, text: &str) {
+    fn render_log(&mut self, area: Rect, buf: &mut Buffer) {
         // clear
         Widget::render(Clear, area, buf);
 
@@ -44,7 +96,7 @@ impl Log<'_> {
             .style(Style::default().fg(Color::White).bg(Color::Black));
 
         // render the scroll text
-        StatefulWidget::render(&mut self.st, area, buf, &mut text.to_string());
+        StatefulWidget::render(&mut self.st, area, buf, &mut self.text);
     }
 
     // render the status bar at the bottom
@@ -54,7 +106,7 @@ impl Log<'_> {
             .padding(Padding::horizontal(1));
 
         let keys = Paragraph::new(
-            " ↓/↑ or j/k: scroll  |  PgUp: start  | PgDwn: end  |  b: back  |  q: quit",
+            " ↓/↑ or j/k: scroll  |  PgUp: start  | PgDwn: end  |  `: back  |  q: quit",
         )
         .block(block)
         .style(Style::default().fg(Color::Black).bg(Color::White))
@@ -66,9 +118,12 @@ impl Log<'_> {
 }
 
 #[async_trait::async_trait]
-impl EventHandler for &mut Log<'_> {
-    /// handle an input event
-    async fn handle_event(&mut self, evt: &Event) -> Result<Option<UiEvent>, Error> {
+impl Screen for Log<'_> {
+    async fn handle_event(
+        &mut self,
+        evt: Event,
+        _to_engine: Sender<Message>,
+    ) -> Result<Option<UiEvent>, Error> {
         if let Event::Key(key) = evt {
             match key.code {
                 KeyCode::PageUp => self.st.scroll_top(),
@@ -80,32 +135,33 @@ impl EventHandler for &mut Log<'_> {
         }
         Ok(None)
     }
-}
 
-impl StatefulWidget for &mut Log<'_> {
-    type State = VecDeque<String>;
+    async fn handle_message(
+        &mut self,
+        msg: Message,
+        _to_engine: Sender<Message>,
+    ) -> Result<Option<UiEvent>, Error> {
+        if let Message::Log { msg } = msg {
+            self.add_message(msg.clone());
+        }
+        Ok(None)
+    }
 
-    fn render(self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
-        let [_, hc, _] = Layout::horizontal([
-            Constraint::Percentage(10),
-            Constraint::Min(1),
-            Constraint::Percentage(10),
-        ])
-        .areas(area);
-        let [_, centered, _] = Layout::vertical([
-            Constraint::Percentage(10),
-            Constraint::Min(1),
-            Constraint::Percentage(10),
-        ])
-        .areas(hc);
+    fn render_screen(
+        &mut self,
+        area: Rect,
+        buf: &mut Buffer,
+        _last_frame_duration: Duration,
+    ) -> Result<(), Error> {
+        self.recalculate_rect(area);
 
         // clear area around the popup
-        Widget::render(Clear, centered, buf);
+        Widget::render(Clear, self.centered, buf);
 
         let centered_block = Block::default()
             .padding(Padding::uniform(2))
             .borders(Borders::NONE);
-        let working_area = centered_block.inner(centered);
+        let working_area = centered_block.inner(self.centered);
 
         // draw drop shadow
         let mut shadow_area = working_area;
@@ -120,14 +176,8 @@ impl StatefulWidget for &mut Log<'_> {
                 .flex(Flex::End)
                 .areas(working_area);
 
-        // combine the log lines into a single string
-        let text = state
-            .iter()
-            .map(|line| line.as_str())
-            .collect::<Vec<_>>()
-            .join("\n");
-
-        self.render_log(log_area, buf, &text);
+        self.render_log(log_area, buf);
         self.render_status(status_area, buf);
+        Ok(())
     }
 }

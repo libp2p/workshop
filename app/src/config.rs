@@ -1,5 +1,6 @@
 use crate::Error;
 use directories::ProjectDirs;
+use engine::Config;
 use languages::{programming, spoken};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -7,14 +8,16 @@ use tracing::info;
 
 /// Represents the application configuration
 #[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct Config {
+pub struct LocalConfig {
     config_dir: PathBuf,
     data_dir: PathBuf,
-    spoken_language: spoken::Code,
-    programming_language: programming::Code,
+    #[serde(skip)]
+    pwd: PathBuf,
+    spoken_language: Option<spoken::Code>,
+    programming_language: Option<programming::Code>,
 }
 
-impl Config {
+impl LocalConfig {
     /// Load the Config from a file, createing it if necessary
     pub fn load() -> Result<Self, Error> {
         // Get the application data directory
@@ -30,11 +33,14 @@ impl Config {
         let config_dir = project_dirs.config_dir().to_path_buf();
         std::fs::create_dir_all(&config_dir)?;
 
+        // get the pwd
+        let pwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+
         // Load the config from a file or create a new one
         let config_path = config_dir.join("config.yaml");
         if config_path.exists() {
             info!("Loading config from: {}", config_path.display());
-            let config: Config = serde_yaml::from_reader(std::fs::File::open(&config_path)?)?;
+            let config: LocalConfig = serde_yaml::from_reader(std::fs::File::open(&config_path)?)?;
             info!("Preferred spoken language: {:?}", config.spoken_language);
             info!(
                 "Preferred programming language: {:?}",
@@ -42,20 +48,34 @@ impl Config {
             );
             Ok(config)
         } else {
-            let config = Config {
+            info!("Creating config at: {}", config_path.display());
+            let config = LocalConfig {
                 config_dir,
                 data_dir,
-                spoken_language: spoken::Code::default(),
-                programming_language: programming::Code::default(),
+                pwd,
+                spoken_language: None,
+                programming_language: None,
             };
-            serde_yaml::to_writer(std::fs::File::create(&config_path)?, &config)?;
+            config.save()?;
             Ok(config)
         }
     }
 
-    /// Get the path to the application data directory
-    pub fn data_dir(&self) -> &Path {
-        self.data_dir.as_path()
+    /// Set the spoken language
+    pub fn set_spoken_language(&mut self, spoken_language: spoken::Code) -> Result<(), Error> {
+        self.spoken_language = Some(spoken_language);
+        self.save()?;
+        Ok(())
+    }
+
+    /// Set the programming language
+    pub fn set_programming_language(
+        &mut self,
+        programming_language: programming::Code,
+    ) -> Result<(), Error> {
+        self.programming_language = Some(programming_language);
+        self.save()?;
+        Ok(())
     }
 
     /// Get the path to the application config directory
@@ -63,13 +83,33 @@ impl Config {
         self.config_dir.as_path()
     }
 
+    /// Save the config to a file
+    pub fn save(&self) -> Result<(), Error> {
+        let config_path = self.config_dir.join("config.yaml");
+        serde_yaml::to_writer(std::fs::File::create(&config_path).unwrap(), &self).unwrap();
+        info!("Config saved to: {}", config_path.display());
+        Ok(())
+    }
+}
+
+impl Config for LocalConfig {
+    /// Get the path to the application data directory
+    fn data_dir(&self) -> &Path {
+        self.data_dir.as_path()
+    }
+
+    /// Get the present working directory
+    fn pwd(&self) -> &Path {
+        self.pwd.as_path()
+    }
+
     /// Get the preferred spoken language
-    pub fn spoken_language(&self) -> spoken::Code {
+    fn spoken_language(&self) -> Option<spoken::Code> {
         self.spoken_language
     }
 
     /// Get the preferred programming language
-    pub fn programming_language(&self) -> programming::Code {
+    fn programming_language(&self) -> Option<programming::Code> {
         self.programming_language
     }
 }

@@ -1,24 +1,38 @@
-use languages::spoken;
+use languages::{programming, spoken};
 
 /// UI events
 #[derive(Clone, Debug)]
 pub enum Event {
-    /// quit the application
-    Quit,
-    /// show the log popup
-    ShowLog,
-    /// show the license popup
-    ShowLicense(String),
     /// close the currently shown popup
     Back,
+    /// quit the application
+    Quit,
+    /// show the workshop selection screen
+    SelectWorkshop,
+    /// set the workshop
+    SetWorkshop(String),
+    /// show the log popup
+    ToggleLog,
+    /// show the license popup
+    ShowLicense,
     /// launch the browser with the given url
     Homepage(String),
     /// change the spoken language
     ChangeSpokenLanguage,
     /// select spoken language
-    SelectSpokenLanguage(Vec<spoken::Code>),
+    SelectSpokenLanguage,
     /// set the spoken language
-    SetSpokenLanguage(spoken::Code),
+    SetSpokenLanguage {
+        code: spoken::Code,
+        set_default: bool,
+    },
     /// change the programming language
     ChangeProgrammingLanguage,
+    /// select programming language
+    SelectProgrammingLanguage,
+    /// set the programming language
+    SetProgrammingLanguage {
+        code: programming::Code,
+        set_default: bool,
+    },
 }

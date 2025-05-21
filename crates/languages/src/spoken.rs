@@ -148,6 +148,18 @@ macro_rules! generate_spoken_enum {
             }
         }
 
+        impl std::cmp::PartialOrd for Code {
+            fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+                Some(self.cmp(other))
+            }
+        }
+
+        impl std::cmp::Ord for Code {
+            fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+                self.to_string().cmp(&other.to_string())
+            }
+        }
+
         impl IntoIterator for Code {
             type Item = Code;
             type IntoIter = std::iter::Copied<std::slice::Iter<'static, Code>>;

@@ -5,6 +5,6 @@ pub mod ui;
 pub use ui::Ui;
 
 pub mod screens;
-pub use screens::{EventHandler, Popups, Screens};
+pub use screens::{Screen, Screens};
 
 pub mod widgets;

@@ -1,3 +1,7 @@
+/// the config trait
+pub mod config;
+pub use config::Config;
+
 /// the workshop engine
 pub mod engine;
 pub use engine::Engine;
@@ -7,8 +11,12 @@ pub mod error;
 pub use error::Error;
 
 /// the filesystem utility functions
-pub mod fs;
-pub use fs::Fs;
+pub(crate) mod fs;
+pub(crate) use fs::Fs;
+
+/// the TryLoad trait and LazyLoader
+pub(crate) mod lazy_loader;
+pub(crate) use lazy_loader::{LazyLoader, TryLoad};
 
 /// the lesson model
 pub mod lesson;
@@ -25,6 +33,7 @@ pub use message::Message;
 /// the workshop model
 pub mod workshop;
 pub use workshop::Workshop;
+pub(crate) use workshop::WorkshopData;
 
 /// the engine state
 pub(crate) mod state;

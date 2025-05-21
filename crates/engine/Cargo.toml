@@ -8,6 +8,7 @@ readme.workspace = true
 license.workspace = true
 
 [dependencies]
+async-trait.workspace = true
 languages.workspace = true
 serde.workspace = true
 serde_yaml.workspace = true

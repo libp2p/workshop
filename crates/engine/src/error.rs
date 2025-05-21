@@ -8,8 +8,29 @@ pub enum Error {
     #[error("YAML parsing error: {0}")]
     YamlParsing(#[from] serde_yaml::Error),
 
+    #[error("Invalid engine state change {0} -> {1}")]
+    InvalidStateChange(String, String),
+
     #[error("Workshop not found: {0}")]
     WorkshopNotFound(String),
+
+    #[error("Workshop name not found")]
+    WorkshopNameNotFound,
+
+    #[error("Workshop data directory not found")]
+    WorkshopDataDirNotFound,
+
+    #[error("Workshop data directory for spoken langage {0} not found")]
+    WorkshopDataSpokenDirNotFound(String),
+
+    #[error("Workshop spoken language not found: {0}")]
+    WorkshopSpokenLanguageNotFound(String),
+
+    #[error("Workshop programming language not found: {0}")]
+    WorkshopProgrammingLanguageNotFound(String),
+
+    #[error("Workshop metadata not found: {0}")]
+    WorkshopMetadataNotFound(String),
 
     #[error("Workshop license not found: {0}")]
     WorkshopLicenseNotFound(String),
