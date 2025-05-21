@@ -4,6 +4,7 @@ use crate::{
 };
 use crossterm::event::{Event, KeyCode};
 use engine::{Message, Workshop};
+use languages::{programming, spoken};
 use ratatui::{
     buffer::Buffer,
     layout::{Alignment, Constraint, Flex, Layout, Rect},
@@ -33,12 +34,23 @@ pub struct Workshops<'a> {
     st: ScrollText<'a>,
     /// currently focused view
     focused: FocusedView,
+    /// the currently selected spoken language
+    spoken_language: Option<spoken::Code>,
+    /// the currently selected programming language
+    programming_language: Option<programming::Code>,
 }
 
 impl Workshops<'_> {
     /// set the workshops
-    pub fn set_workshops(&mut self, workshops: &HashMap<String, Workshop>) {
+    fn set_workshops(
+        &mut self,
+        workshops: &HashMap<String, Workshop>,
+        spoken_language: Option<spoken::Code>,
+        programming_language: Option<programming::Code>,
+    ) {
         self.workshops = workshops.clone();
+        self.spoken_language = spoken_language;
+        self.programming_language = programming_language;
 
         if self.workshops.is_empty() {
             self.titles_state.select(None);
@@ -176,7 +188,7 @@ impl Workshops<'_> {
     fn render_status(&mut self, area: Rect, buf: &mut Buffer, last_frame_duration: Duration) {
         // render the status bar at the bottom
         let [keys_area, fps_area] =
-            Layout::horizontal([Constraint::Min(1), Constraint::Length(20)]).areas(area);
+            Layout::horizontal([Constraint::Min(1), Constraint::Length(27)]).areas(area);
 
         self.render_keys(keys_area, buf);
         self.render_fps(fps_area, buf, last_frame_duration);
@@ -204,7 +216,7 @@ impl Workshops<'_> {
 
     // render the frames per second
     fn render_fps(&mut self, area: Rect, buf: &mut Buffer, last_frame_duration: Duration) {
-        let fps = Block::default()
+        let block = Block::default()
             .borders(Borders::NONE)
             .style(Style::default().fg(Color::Black).bg(Color::White))
             .title_alignment(Alignment::Right)
@@ -213,6 +225,22 @@ impl Workshops<'_> {
                 "FPS: {:.2} ",
                 1.0 / last_frame_duration.as_secs_f64()
             ));
+
+        let spoken = match self.spoken_language {
+            Some(code) => code.get_name_in_english().to_string(),
+            None => "All".to_string(),
+        };
+
+        let programming = match self.programming_language {
+            Some(code) => code.get_name().to_string(),
+            None => "All".to_string(),
+        };
+
+        let fps = Paragraph::new(format!("[ {} | {} ]", spoken, programming))
+            .block(block)
+            .style(Style::default().fg(Color::Black).bg(Color::White))
+            .wrap(Wrap { trim: false })
+            .alignment(Alignment::Right);
 
         Widget::render(fps, area, buf);
     }
@@ -291,9 +319,14 @@ impl Screen for Workshops<'_> {
         msg: Message,
         _to_engine: Sender<Message>,
     ) -> Result<Option<UiEvent>, Error> {
-        if let Message::SelectWorkshop { workshops } = msg {
+        if let Message::SelectWorkshop {
+            workshops,
+            spoken_language,
+            programming_language,
+        } = msg
+        {
             info!("Showing select workshop screen");
-            self.set_workshops(&workshops);
+            self.set_workshops(&workshops, spoken_language, programming_language);
             return Ok(Some(UiEvent::SelectWorkshop));
         }
         Ok(None)

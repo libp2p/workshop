@@ -126,7 +126,11 @@ impl Engine {
                         );
                     }
                     self.to_ui
-                        .send(Message::SelectWorkshop { workshops })
+                        .send(Message::SelectWorkshop {
+                            workshops,
+                            spoken_language: self.fs.get_spoken_language(),
+                            programming_language: self.fs.get_programming_language(),
+                        })
                         .await
                         .map_err(|_| Error::UiChannelClosed)?;
                 }

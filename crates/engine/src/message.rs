@@ -14,6 +14,10 @@ pub enum Message {
     SelectWorkshop {
         /// supported workshops
         workshops: HashMap<String, Workshop>,
+        /// the current selected spoken language
+        spoken_language: Option<spoken::Code>,
+        /// the current selected programming language
+        programming_language: Option<programming::Code>,
     },
     /// Set workshop  UI --> Engine
     SetWorkshop {
