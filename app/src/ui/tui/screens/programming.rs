@@ -21,6 +21,8 @@ use tracing::info;
 pub struct Programming<'a> {
     /// the programming language list
     programming_languages: Vec<programming::Code>,
+    /// the currenttly selected programming language
+    programming_language: Option<programming::Code>,
     /// whether their selection sets the default value
     set_default: bool,
     /// the cached rect from last render
@@ -35,18 +37,29 @@ pub struct Programming<'a> {
 
 impl Programming<'_> {
     /// set the programming language list
-    pub fn set_programming_languages(
+    fn set_programming_languages(
         &mut self,
         programming_languages: &[programming::Code],
+        programming_language: Option<programming::Code>,
         set_default: bool,
     ) {
         self.programming_languages = programming_languages.to_vec();
+        self.programming_language = programming_language;
         self.set_default = set_default;
-        let programming_language_names = programming_languages
-            .iter()
-            .map(|code| code.get_name().to_string())
-            .collect::<Vec<_>>();
-        self.list_state.select(Some(0));
+        let mut programming_language_names = vec!["Any".to_string()];
+        programming_language_names.extend(
+            programming_languages
+                .iter()
+                .map(|code| code.get_name().to_string()),
+        );
+        let select_index = match self.programming_language {
+            Some(code) => match programming_languages.iter().position(|&c| c == code) {
+                Some(index) => Some(index + 1),
+                None => Some(0),
+            },
+            None => Some(0),
+        };
+        self.list_state.select(select_index);
         self.list = List::new(programming_language_names)
             .block(
                 Block::default()
@@ -126,16 +139,28 @@ impl Screen for Programming<'_> {
                 KeyCode::Char('k') | KeyCode::Up => self.list_state.select_previous(),
                 KeyCode::Enter => {
                     if let Some(selected) = self.list_state.selected() {
-                        if let Some(code) = self.programming_languages.get(selected) {
-                            info!("Programming language selected: {:?}", code);
-                            to_engine
-                                .send(Message::SetProgrammingLanguage { code: *code })
-                                .await?;
-                            return Ok(Some(UiEvent::SetProgrammingLanguage {
-                                code: *code,
-                                set_default: self.set_default,
-                            }));
-                        }
+                        let code = if selected == 0 {
+                            info!("Programming language selected: Any");
+                            None
+                        } else {
+                            match self.programming_languages.get(selected - 1) {
+                                Some(code) => {
+                                    info!("Programming language selected: {:?}", code);
+                                    Some(*code)
+                                }
+                                None => {
+                                    info!("No Programming language selected");
+                                    None
+                                }
+                            }
+                        };
+                        to_engine
+                            .send(Message::SetProgrammingLanguage { code })
+                            .await?;
+                        return Ok(Some(UiEvent::SetProgrammingLanguage {
+                            code,
+                            set_default: self.set_default,
+                        }));
                     }
                 }
                 _ => {}
@@ -151,11 +176,16 @@ impl Screen for Programming<'_> {
     ) -> Result<Option<UiEvent>, Error> {
         if let Message::SelectProgrammingLanguage {
             programming_languages,
+            programming_language,
             set_default,
         } = msg
         {
             info!("Select programming language: {:?}", programming_languages);
-            self.set_programming_languages(&programming_languages, set_default);
+            self.set_programming_languages(
+                &programming_languages,
+                programming_language,
+                set_default,
+            );
             return Ok(Some(UiEvent::SelectProgrammingLanguage));
         }
         Ok(None)
@@ -185,12 +215,12 @@ impl Screen for Programming<'_> {
             .border_style(Style::default().fg(Color::DarkGray).bg(Color::DarkGray));
         Widget::render(block, shadow_area, buf);
 
-        let [log_area, status_area] =
+        let [list_area, status_area] =
             Layout::vertical([Constraint::Percentage(100), Constraint::Min(1)])
                 .flex(Flex::End)
                 .areas(working_area);
 
-        self.render_list(log_area, buf);
+        self.render_list(list_area, buf);
         self.render_status(status_area, buf);
         Ok(())
     }

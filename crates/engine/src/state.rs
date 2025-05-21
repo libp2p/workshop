@@ -13,9 +13,10 @@ pub enum State {
     /// select the lesson
     SelectLesson(Vec<Lesson>),
     /// select the spoken language
-    SelectSpokenLanguage {
-        spoken_languages: Vec<spoken::Code>,
-        set_default: bool,
+    SelectSpokenLanguage { spoken_languages: Vec<spoken::Code> },
+    /// set the spoken language default
+    SetSpokenLanguageDefault {
+        spoken_language: Option<spoken::Code>,
     },
     /// select the programming language
     SelectProgrammingLanguage {
@@ -37,6 +38,7 @@ impl std::fmt::Display for State {
             State::SelectWorkshop(_) => write!(f, "SelectWorkshop"),
             State::SelectLesson(_) => write!(f, "SelectLesson"),
             State::SelectSpokenLanguage { .. } => write!(f, "SelectSpokenLanguage"),
+            State::SetSpokenLanguageDefault { .. } => write!(f, "SetSpokenLanguageDefault"),
             State::SelectProgrammingLanguage { .. } => write!(f, "SelectProgrammingLanguage"),
             State::ShowLicense(_) => write!(f, "License"),
             State::Error(error) => write!(f, "Error: {}", error),

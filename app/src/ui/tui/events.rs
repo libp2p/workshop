@@ -23,8 +23,11 @@ pub enum Event {
     SelectSpokenLanguage,
     /// set the spoken language
     SetSpokenLanguage {
-        code: spoken::Code,
-        set_default: bool,
+        spoken_language: Option<spoken::Code>,
+    },
+    /// set a value as default
+    SetSpokenLanguageDefault {
+        spoken_language: Option<spoken::Code>,
     },
     /// change the programming language
     ChangeProgrammingLanguage,
@@ -32,7 +35,7 @@ pub enum Event {
     SelectProgrammingLanguage,
     /// set the programming language
     SetProgrammingLanguage {
-        code: programming::Code,
+        code: Option<programming::Code>,
         set_default: bool,
     },
 }

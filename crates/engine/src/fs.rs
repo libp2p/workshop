@@ -7,6 +7,7 @@ use std::{
     collections::HashMap,
     path::{Path, PathBuf},
 };
+use tracing::info;
 
 /// The Filesystem wrapper
 #[derive(Clone, Debug, Default)]
@@ -168,25 +169,40 @@ impl Fs {
 
     /// Get a workshop by name, iff it supports the given spoken and programming languages
     pub(crate) fn get_workshop_data_filtered(&self, name: &str) -> Result<WorkshopData, Error> {
+        info!("(engine) get_workshop_data_filtered: {}", name);
         let workshop = self.get_workshop_data(name)?;
         if let Some(spoken) = self.spoken_language {
+            info!("(engine) - spoken: {}", spoken.get_name_in_english());
             if !workshop.get_all_spoken_languages().contains(&spoken) {
+                info!("(engine)   - not a supported spoken language");
                 return Err(Error::WorkshopNotFound(name.to_string()));
             }
+            info!("(engine)   - a supported spoken language");
             if let Some(programming) = self.programming_language {
+                info!("(engine) - programming: {}", programming.get_name());
                 if !workshop
                     .get_programming_languages_for_spoken_language(spoken)?
                     .contains(&programming)
                 {
+                    info!("(engine)   - not a supported programming language");
                     return Err(Error::WorkshopNotFound(name.to_string()));
                 }
+                info!("(engine)   - a supported programming language");
+            } else {
+                info!("(engine) - programming: Any");
             }
-        } else if let Some(programming) = self.programming_language {
-            if !workshop
-                .get_all_programming_languages()
-                .contains(&programming)
-            {
-                return Err(Error::WorkshopNotFound(name.to_string()));
+        } else {
+            info!("(engine) - spoken: Any");
+            if let Some(programming) = self.programming_language {
+                info!("(engine) - programming: {}", programming.get_name());
+                if !workshop
+                    .get_all_programming_languages()
+                    .contains(&programming)
+                {
+                    info!("(engine)   - not a supported programming language");
+                    return Err(Error::WorkshopNotFound(name.to_string()));
+                }
+                info!("(engine)   - a supported programming language");
             }
         }
         Ok(workshop)

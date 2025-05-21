@@ -45,13 +45,18 @@ pub enum Message {
     SelectSpokenLanguage {
         /// supported spoken languages
         spoken_languages: Vec<spoken::Code>,
-        /// set the selection as default
-        set_default: bool,
+        /// the current selected spoken language
+        spoken_language: Option<spoken::Code>,
     },
     /// Set spoken language  UI --> Engine
     SetSpokenLanguage {
         /// spoken language
-        code: spoken::Code,
+        spoken_language: Option<spoken::Code>,
+    },
+    /// Set spoken language default  UI <-- Engine
+    SetSpokenLanguageDefault {
+        /// set the selection as default
+        spoken_language: Option<spoken::Code>,
     },
     /// Change programming language  UI --> Engine
     ChangeProgrammingLanguage,
@@ -59,13 +64,15 @@ pub enum Message {
     SelectProgrammingLanguage {
         /// supported programming languages
         programming_languages: Vec<programming::Code>,
+        /// the current selected programming language
+        programming_language: Option<programming::Code>,
         /// set the selection as default
         set_default: bool,
     },
     /// Set programming language  UI --> Engine
     SetProgrammingLanguage {
         /// programming language
-        code: programming::Code,
+        code: Option<programming::Code>,
     },
     /// An error occured  UI <-- Engine
     Error {

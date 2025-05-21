@@ -4,6 +4,8 @@ pub mod log;
 pub use log::Log;
 pub mod programming;
 pub use programming::Programming;
+pub mod set_default;
+pub use set_default::SetDefault;
 pub mod spoken;
 pub use spoken::Spoken;
 pub mod workshops;
@@ -23,6 +25,7 @@ pub enum Screens {
     Log,
     License,
     Spoken,
+    SpokenSetDefault,
     Programming,
     Lessons,
 }

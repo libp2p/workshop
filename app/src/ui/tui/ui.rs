@@ -65,6 +65,10 @@ impl Ui {
         ui.screens
             .insert(Screens::Spoken, Box::new(screens::Spoken::default()));
         ui.screens.insert(
+            Screens::SpokenSetDefault,
+            Box::new(screens::SetDefault::new("Set spoken language as default")),
+        );
+        ui.screens.insert(
             Screens::Programming,
             Box::new(screens::Programming::default()),
         );
@@ -255,16 +259,16 @@ impl Ui {
             UiEvent::SelectSpokenLanguage => {
                 info!("Selecting spoken language");
             }
-            UiEvent::SetSpokenLanguage { code, set_default } => {
-                info!("Selected spoken language: {:?}", code);
-                if set_default {
-                    info!("Saving spoken language as default");
-                    self.config.set_spoken_language(code)?;
-                }
-                // close the spoken language selection screen
-                if let Some(Screens::Spoken) = self.screen.last() {
-                    self.screen.pop();
-                }
+            UiEvent::SetSpokenLanguage { .. } => {
+                // pop up the confirmation dialog
+                self.screen.pop();
+                self.screen.push(Screens::SpokenSetDefault);
+            }
+            UiEvent::SetSpokenLanguageDefault { spoken_language } => {
+                info!("Saving spoken language as default {:?}", spoken_language);
+                self.config.set_spoken_language(spoken_language)?;
+                self.screen.pop();
+                self.to_engine.send(Message::Back).await?;
             }
             UiEvent::ChangeProgrammingLanguage => {
                 info!("Change programming language");
@@ -341,6 +345,7 @@ impl Screen for Ui {
             // these messages we need to show the correct screen before processing the message
             // below so that the screen will get the message.
             match msg {
+                /*
                 Message::SelectSpokenLanguage { .. } => {
                     // show the spoken language selection screen before the message is processed
                     self.screen.push(Screens::Spoken);
@@ -349,14 +354,21 @@ impl Screen for Ui {
                     // show the programming language selection screen before the message is processed
                     self.screen.push(Screens::Programming);
                 }
+                */
                 Message::SelectWorkshop { .. } => {
                     // show the workshop selection screen before the message is processed
                     self.screen.push(Screens::Workshops);
                 }
+                /*
                 Message::SelectLesson { .. } => {
                     // show the lesson selection screen before the message is processed
                     self.screen.push(Screens::Lessons);
                 }
+                Message::SetSpokenLanguageDefault { .. } => {
+                    // show the set default screen before the message is processed
+                    self.screen.push(Screens::SpokenSetDefault);
+                }
+                */
                 _ => {}
             }
         }

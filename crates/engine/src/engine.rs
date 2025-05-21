@@ -60,10 +60,17 @@ impl Engine {
                             // Change the spoken language in the engine state
                             self.change_spoken_language().await
                         },
-                        Message::SetSpokenLanguage { code } => {
-                            info!("(engine) Setting spoken language to: {}", code.get_name_in_english());
+                        Message::SetSpokenLanguage { spoken_language } => {
+                            match spoken_language {
+                                Some(code) => {
+                                    info!("(engine) Setting spoken language to: {}", code.get_name_in_english());
+                                }
+                                None => {
+                                    info!("(engine) Setting spoken language to: Any");
+                                }
+                            }
                             // Set the spoken language in the engine state
-                            self.set_spoken_language(code).await
+                            self.set_spoken_language(spoken_language).await
                         },
                         Message::ChangeProgrammingLanguage => {
                             info!("(engine) Changing programming language");
@@ -71,7 +78,14 @@ impl Engine {
                             self.change_programming_language().await
                         },
                         Message::SetProgrammingLanguage { code } => {
-                            info!("(engine) Setting programming language to: {}", code.get_name());
+                            match code {
+                                Some(code) => {
+                                    info!("(engine) Setting programming language to: {}", code.get_name());
+                                }
+                                None => {
+                                    info!("(engine) Setting programming language to: Any");
+                                }
+                            }
                             // Set the programming language in the engine state
                             self.set_programming_language(code).await
                         },
@@ -116,7 +130,10 @@ impl Engine {
                     info!("(engine) Tried sending message when in Nil");
                 }
                 State::SelectWorkshop(workshops_data) => {
-                    info!("(engine) Sending select workshops to {:?}", workshops_data);
+                    info!(
+                        "(engine) Sending select workshops to {:?}",
+                        workshops_data.keys().collect::<Vec<_>>()
+                    );
                     let mut workshops =
                         HashMap::<String, Workshop>::with_capacity(workshops_data.len());
                     for (name, workshop) in workshops_data.iter() {
@@ -143,10 +160,7 @@ impl Engine {
                         .await
                         .map_err(|_| Error::UiChannelClosed)?;
                 }
-                State::SelectSpokenLanguage {
-                    spoken_languages,
-                    set_default,
-                } => {
+                State::SelectSpokenLanguage { spoken_languages } => {
                     info!(
                         "(engine) Sending select language message: {:?}",
                         spoken_languages
@@ -154,7 +168,19 @@ impl Engine {
                     self.to_ui
                         .send(Message::SelectSpokenLanguage {
                             spoken_languages: spoken_languages.to_vec(),
-                            set_default: *set_default,
+                            spoken_language: self.fs.get_spoken_language(),
+                        })
+                        .await
+                        .map_err(|_| Error::UiChannelClosed)?;
+                }
+                State::SetSpokenLanguageDefault { spoken_language } => {
+                    info!(
+                        "(engine) Sending set default spoken language message: {:?}",
+                        spoken_language
+                    );
+                    self.to_ui
+                        .send(Message::SetSpokenLanguageDefault {
+                            spoken_language: *spoken_language,
                         })
                         .await
                         .map_err(|_| Error::UiChannelClosed)?;
@@ -170,6 +196,7 @@ impl Engine {
                     self.to_ui
                         .send(Message::SelectProgrammingLanguage {
                             programming_languages: programming_languages.to_vec(),
+                            programming_language: self.fs.get_programming_language(),
                             set_default: *set_default,
                         })
                         .await
@@ -219,23 +246,6 @@ impl Engine {
             // Nil -> SelectWorkshop
             let workshops = self.fs.get_workshops_data_filtered()?;
             self.state.push(State::SelectWorkshop(workshops));
-            if self.fs.get_programming_language().is_none() {
-                let programming_languages = self.fs.get_workshops_programming_languages()?;
-                // Nil -> SelectProgrammingLanguage -> SelectWorkshop
-                self.state.push(State::SelectProgrammingLanguage {
-                    programming_languages,
-                    set_default: true,
-                });
-            }
-            if self.fs.get_spoken_language().is_none() {
-                let spoken_languages = self.fs.get_workshops_spoken_languages()?;
-                // Nil -> SelectSpokenLanguage -> [SelectProgrammingLanguage] -> SelectWorkshop
-                self.state.push(State::SelectSpokenLanguage {
-                    spoken_languages,
-                    set_default: true,
-                });
-            }
-
             Ok(())
         } else {
             Err(Error::InvalidStateChange(
@@ -273,10 +283,8 @@ impl Engine {
             let spoken_languages = self.fs.get_workshops_spoken_languages()?;
 
             // SelectWorkshop or SelectLesson -> SelectSpokenLanguage
-            self.state.push(State::SelectSpokenLanguage {
-                spoken_languages,
-                set_default: false,
-            });
+            self.state
+                .push(State::SelectSpokenLanguage { spoken_languages });
 
             Ok(())
         } else {
@@ -288,13 +296,16 @@ impl Engine {
     }
 
     /// select the spoken language
-    async fn set_spoken_language(&mut self, lang: spoken::Code) -> Result<(), Error> {
+    async fn set_spoken_language(
+        &mut self,
+        spoken_language: Option<spoken::Code>,
+    ) -> Result<(), Error> {
         // invariant: the engine is in SelectSpokenLanguage state
         if let Some(State::SelectSpokenLanguage { .. }) = self.state.last() {
             // remove the SelectSpokenLanguage state
             self.state.pop();
             // set the spoken language
-            self.fs.set_spoken_language(Some(lang));
+            self.fs.set_spoken_language(spoken_language);
 
             // need to refresh the list of workshops based off of the new spoken language
             if let Some(State::SelectWorkshop { .. }) = self.state.last() {
@@ -304,6 +315,9 @@ impl Engine {
                 let workshops = self.fs.get_workshops_data_filtered()?;
                 // push the new SelectWorkshop state
                 self.state.push(State::SelectWorkshop(workshops));
+                // push the set default state
+                self.state
+                    .push(State::SetSpokenLanguageDefault { spoken_language });
             }
 
             Ok(())
@@ -341,13 +355,16 @@ impl Engine {
     }
 
     /// select the programming language
-    async fn set_programming_language(&mut self, lang: programming::Code) -> Result<(), Error> {
+    async fn set_programming_language(
+        &mut self,
+        programming_language: Option<programming::Code>,
+    ) -> Result<(), Error> {
         // invariant: the engine is in SelectProgrammingLanguage state
         if let Some(State::SelectProgrammingLanguage { .. }) = self.state.last() {
             // remove the SelectSpokenLanguage state
             self.state.pop();
             // set the spoken language
-            self.fs.set_programming_language(Some(lang));
+            self.fs.set_programming_language(programming_language);
 
             // need to refresh the list of workshops based off of the new spoken language
             if let Some(State::SelectWorkshop { .. }) = self.state.last() {

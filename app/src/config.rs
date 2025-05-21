@@ -62,8 +62,11 @@ impl LocalConfig {
     }
 
     /// Set the spoken language
-    pub fn set_spoken_language(&mut self, spoken_language: spoken::Code) -> Result<(), Error> {
-        self.spoken_language = Some(spoken_language);
+    pub fn set_spoken_language(
+        &mut self,
+        spoken_language: Option<spoken::Code>,
+    ) -> Result<(), Error> {
+        self.spoken_language = spoken_language;
         self.save()?;
         Ok(())
     }
@@ -71,9 +74,9 @@ impl LocalConfig {
     /// Set the programming language
     pub fn set_programming_language(
         &mut self,
-        programming_language: programming::Code,
+        programming_language: Option<programming::Code>,
     ) -> Result<(), Error> {
-        self.programming_language = Some(programming_language);
+        self.programming_language = programming_language;
         self.save()?;
         Ok(())
     }
