@@ -35,7 +35,10 @@ pub enum Event {
     SelectProgrammingLanguage,
     /// set the programming language
     SetProgrammingLanguage {
-        code: Option<programming::Code>,
-        set_default: bool,
+        programming_language: Option<programming::Code>,
+    },
+    /// set a value as default
+    SetProgrammingLanguageDefault {
+        programming_language: Option<programming::Code>,
     },
 }

@@ -69,15 +69,15 @@ impl SetDefault<'_> {
     fn recalculate_rect(&mut self, area: Rect) {
         if self.area != area {
             let [_, hc, _] = Layout::horizontal([
-                Constraint::Percentage(10),
-                Constraint::Min(1),
-                Constraint::Percentage(10),
+                Constraint::Fill(1),
+                Constraint::Max(44),
+                Constraint::Fill(1),
             ])
             .areas(area);
             [_, self.centered, _] = Layout::vertical([
-                Constraint::Percentage(10),
-                Constraint::Min(1),
-                Constraint::Percentage(10),
+                Constraint::Fill(1),
+                Constraint::Max(10),
+                Constraint::Fill(1),
             ])
             .areas(hc);
         }
@@ -137,9 +137,23 @@ impl Screen for SetDefault<'_> {
         msg: Message,
         _to_engine: Sender<Message>,
     ) -> Result<Option<UiEvent>, Error> {
-        if let Message::SetSpokenLanguageDefault { spoken_language } = msg {
-            info!("Set default spoken language?: {:?}", spoken_language);
-            self.set_value(UiEvent::SetSpokenLanguageDefault { spoken_language });
+        match msg {
+            Message::SetProgrammingLanguageDefault {
+                programming_language,
+            } => {
+                info!(
+                    "Set default programming language?: {:?}",
+                    programming_language
+                );
+                self.set_value(UiEvent::SetProgrammingLanguageDefault {
+                    programming_language,
+                });
+            }
+            Message::SetSpokenLanguageDefault { spoken_language } => {
+                info!("Set spoken language?: {:?}", spoken_language);
+                self.set_value(UiEvent::SetSpokenLanguageDefault { spoken_language });
+            }
+            _ => {}
         }
         Ok(None)
     }

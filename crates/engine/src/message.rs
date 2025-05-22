@@ -66,13 +66,16 @@ pub enum Message {
         programming_languages: Vec<programming::Code>,
         /// the current selected programming language
         programming_language: Option<programming::Code>,
-        /// set the selection as default
-        set_default: bool,
     },
     /// Set programming language  UI --> Engine
     SetProgrammingLanguage {
         /// programming language
-        code: Option<programming::Code>,
+        programming_language: Option<programming::Code>,
+    },
+    /// Set programming language default  UI <-- Engine
+    SetProgrammingLanguageDefault {
+        /// set the selection as default
+        programming_language: Option<programming::Code>,
     },
     /// An error occured  UI <-- Engine
     Error {

@@ -27,6 +27,7 @@ pub enum Screens {
     Spoken,
     SpokenSetDefault,
     Programming,
+    ProgrammingSetDefault,
     Lessons,
 }
 

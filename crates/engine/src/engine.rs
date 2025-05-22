@@ -77,8 +77,8 @@ impl Engine {
                             // Change the programming language in the engine state
                             self.change_programming_language().await
                         },
-                        Message::SetProgrammingLanguage { code } => {
-                            match code {
+                        Message::SetProgrammingLanguage { programming_language } => {
+                            match programming_language {
                                 Some(code) => {
                                     info!("(engine) Setting programming language to: {}", code.get_name());
                                 }
@@ -87,7 +87,7 @@ impl Engine {
                                 }
                             }
                             // Set the programming language in the engine state
-                            self.set_programming_language(code).await
+                            self.set_programming_language(programming_language).await
                         },
                         Message::SetWorkshop { name } => {
                             info!("(engine) Setting workshop to: {}", name);
@@ -187,7 +187,6 @@ impl Engine {
                 }
                 State::SelectProgrammingLanguage {
                     programming_languages,
-                    set_default,
                 } => {
                     info!(
                         "(engine) Sending select programming language message: {:?}",
@@ -197,7 +196,20 @@ impl Engine {
                         .send(Message::SelectProgrammingLanguage {
                             programming_languages: programming_languages.to_vec(),
                             programming_language: self.fs.get_programming_language(),
-                            set_default: *set_default,
+                        })
+                        .await
+                        .map_err(|_| Error::UiChannelClosed)?;
+                }
+                State::SetProgrammingLanguageDefault {
+                    programming_language,
+                } => {
+                    info!(
+                        "(engine) Sending set default programming language message: {:?}",
+                        programming_language
+                    );
+                    self.to_ui
+                        .send(Message::SetProgrammingLanguageDefault {
+                            programming_language: *programming_language,
                         })
                         .await
                         .map_err(|_| Error::UiChannelClosed)?;
@@ -342,7 +354,6 @@ impl Engine {
             // SelectWorkshop or SelectLesson -> SelectProgrammingLanguage
             self.state.push(State::SelectProgrammingLanguage {
                 programming_languages,
-                set_default: false,
             });
 
             Ok(())
@@ -374,6 +385,10 @@ impl Engine {
                 let workshops = self.fs.get_workshops_data_filtered()?;
                 // push the new SelectWorkshop state
                 self.state.push(State::SelectWorkshop(workshops));
+                // push the set default state
+                self.state.push(State::SetProgrammingLanguageDefault {
+                    programming_language,
+                });
             }
 
             Ok(())

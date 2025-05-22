@@ -21,7 +21,10 @@ pub enum State {
     /// select the programming language
     SelectProgrammingLanguage {
         programming_languages: Vec<programming::Code>,
-        set_default: bool,
+    },
+    /// set the programming language default
+    SetProgrammingLanguageDefault {
+        programming_language: Option<programming::Code>,
     },
     /// send the license text
     ShowLicense(String),
@@ -40,6 +43,9 @@ impl std::fmt::Display for State {
             State::SelectSpokenLanguage { .. } => write!(f, "SelectSpokenLanguage"),
             State::SetSpokenLanguageDefault { .. } => write!(f, "SetSpokenLanguageDefault"),
             State::SelectProgrammingLanguage { .. } => write!(f, "SelectProgrammingLanguage"),
+            State::SetProgrammingLanguageDefault { .. } => {
+                write!(f, "SetProgrammingLanguageDefault")
+            }
             State::ShowLicense(_) => write!(f, "License"),
             State::Error(error) => write!(f, "Error: {}", error),
             State::Quit => write!(f, "Quit"),

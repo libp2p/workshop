@@ -112,10 +112,6 @@ impl Workshops<'_> {
 
     /// render the list of workshop titles
     fn render_workshop_titles(&mut self, area: Rect, buf: &mut Buffer) {
-        if self.workshops.is_empty() {
-            return;
-        }
-
         // figure out the titles list border fg color based on what is focused
         let fg = match self.focused {
             FocusedView::List => Color::White,
@@ -135,35 +131,38 @@ impl Workshops<'_> {
 
     /// render the workshop info
     fn render_workshop_info(&mut self, area: Rect, buf: &mut Buffer) {
-        let workshop = match self.get_selected_workshop() {
-            Some(workshop) => workshop,
-            None => return,
+        let mut details = match self.get_selected_workshop() {
+            Some(workshop) => {
+                let mut details = String::new();
+                details.push_str("Authors: \n");
+                details.push_str(
+                    &workshop
+                        .authors
+                        .iter()
+                        .map(|a| format!(" - {a}"))
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                );
+                details.push_str("\nCopyright: ");
+                details.push_str(&workshop.copyright);
+                details.push_str("\nLicense: ");
+                details.push_str(&workshop.license);
+                details.push_str("\nHomepage: ");
+                details.push_str(&workshop.homepage);
+                details.push_str("\nDifficulty: ");
+                details.push_str(&workshop.difficulty);
+                /*
+                details.push_str("\n\n");
+                details.push_str(&workshop.description);
+                details.push_str("\n\n");
+                details.push_str(&workshop.setup);
+                */
+                details
+            }
+            None => {
+                "No workshops support the selected spoken and programming languages".to_string()
+            }
         };
-
-        let mut details = String::new();
-        details.push_str("Authors: \n");
-        details.push_str(
-            &workshop
-                .authors
-                .iter()
-                .map(|a| format!(" - {a}"))
-                .collect::<Vec<_>>()
-                .join(", "),
-        );
-        details.push_str("\nCopyright: ");
-        details.push_str(&workshop.copyright);
-        details.push_str("\nLicense: ");
-        details.push_str(&workshop.license);
-        details.push_str("\nHomepage: ");
-        details.push_str(&workshop.homepage);
-        details.push_str("\nDifficulty: ");
-        details.push_str(&workshop.difficulty);
-        /*
-        details.push_str("\n\n");
-        details.push_str(&workshop.description);
-        details.push_str("\n\n");
-        details.push_str(&workshop.setup);
-        */
 
         let fg = match self.focused {
             FocusedView::List => Color::DarkGray,

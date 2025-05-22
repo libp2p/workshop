@@ -79,15 +79,15 @@ impl Spoken<'_> {
     fn recalculate_rect(&mut self, area: Rect) {
         if self.area != area {
             let [_, hc, _] = Layout::horizontal([
-                Constraint::Percentage(10),
-                Constraint::Min(1),
-                Constraint::Percentage(10),
+                Constraint::Fill(1),
+                Constraint::Max(44),
+                Constraint::Fill(1),
             ])
             .areas(area);
             [_, self.centered, _] = Layout::vertical([
-                Constraint::Percentage(10),
-                Constraint::Min(1),
-                Constraint::Percentage(10),
+                Constraint::Fill(1),
+                Constraint::Percentage(33),
+                Constraint::Fill(1),
             ])
             .areas(hc);
         }
@@ -108,13 +108,11 @@ impl Spoken<'_> {
             .borders(Borders::NONE)
             .padding(Padding::horizontal(1));
 
-        let keys = Paragraph::new(
-            " ↓/↑ or j/k: scroll  |  enter: select  |  PgUp: start  | PgDwn: end  |  b: back  |  q: quit",
-        )
-        .block(block)
-        .style(Style::default().fg(Color::Black).bg(Color::White))
-        .wrap(Wrap { trim: true })
-        .alignment(Alignment::Left);
+        let keys = Paragraph::new(" ↓/↑ or j/k: scroll  |  enter: select")
+            .block(block)
+            .style(Style::default().fg(Color::Black).bg(Color::White))
+            .wrap(Wrap { trim: true })
+            .alignment(Alignment::Left);
 
         Widget::render(keys, area, buf);
     }
@@ -176,7 +174,6 @@ impl Screen for Spoken<'_> {
         {
             info!("Select spoken language: {:?}", spoken_languages);
             self.set_spoken_languages(&spoken_languages, spoken_language);
-            // Handle spoken language selection
             return Ok(Some(UiEvent::SelectSpokenLanguage));
         }
         Ok(None)
@@ -206,12 +203,12 @@ impl Screen for Spoken<'_> {
             .border_style(Style::default().fg(Color::DarkGray).bg(Color::DarkGray));
         Widget::render(block, shadow_area, buf);
 
-        let [log_area, status_area] =
+        let [list_area, status_area] =
             Layout::vertical([Constraint::Percentage(100), Constraint::Min(1)])
                 .flex(Flex::End)
                 .areas(working_area);
 
-        self.render_list(log_area, buf);
+        self.render_list(list_area, buf);
         self.render_status(status_area, buf);
         Ok(())
     }

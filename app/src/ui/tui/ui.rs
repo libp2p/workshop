@@ -50,7 +50,7 @@ impl Ui {
             from_logger,
             config,
             screens: HashMap::with_capacity(5),
-            screen: Vec::new(),
+            screen: vec![Screens::Workshops],
             last_frame_duration: Duration::default(),
         };
 
@@ -66,11 +66,15 @@ impl Ui {
             .insert(Screens::Spoken, Box::new(screens::Spoken::default()));
         ui.screens.insert(
             Screens::SpokenSetDefault,
-            Box::new(screens::SetDefault::new("Set spoken language as default")),
+            Box::new(screens::SetDefault::new("Save as default?")),
         );
         ui.screens.insert(
             Screens::Programming,
             Box::new(screens::Programming::default()),
+        );
+        ui.screens.insert(
+            Screens::ProgrammingSetDefault,
+            Box::new(screens::SetDefault::new("Save as default?")),
         );
         ui
     }
@@ -260,8 +264,8 @@ impl Ui {
                 info!("Selecting spoken language");
             }
             UiEvent::SetSpokenLanguage { .. } => {
-                // pop up the confirmation dialog
                 self.screen.pop();
+                // pop up the confirmation dialog
                 self.screen.push(Screens::SpokenSetDefault);
             }
             UiEvent::SetSpokenLanguageDefault { spoken_language } => {
@@ -283,16 +287,21 @@ impl Ui {
             UiEvent::SelectProgrammingLanguage => {
                 info!("Selecting programming language");
             }
-            UiEvent::SetProgrammingLanguage { code, set_default } => {
-                info!("Selected programming language: {:?}", code);
-                if set_default {
-                    info!("Saving programming language as default");
-                    self.config.set_programming_language(code)?;
-                }
-                // close the programming language selection screen
-                if let Some(Screens::Programming) = self.screen.last() {
-                    self.screen.pop();
-                }
+            UiEvent::SetProgrammingLanguage { .. } => {
+                self.screen.pop();
+                // pop up the confirmation dialog
+                self.screen.push(Screens::ProgrammingSetDefault);
+            }
+            UiEvent::SetProgrammingLanguageDefault {
+                programming_language,
+            } => {
+                info!(
+                    "Saving programming language as default {:?}",
+                    programming_language
+                );
+                self.config.set_programming_language(programming_language)?;
+                self.screen.pop();
+                self.to_engine.send(Message::Back).await?;
             }
         }
         Ok(true)
@@ -339,39 +348,21 @@ impl Screen for Ui {
             }
         }
 
+        /*
         if self.screen.is_empty() {
             // the engine might need to ask the user for their spoken and/or programming languages
             // before we have any other screen set up. so if screen is empty and we get either of
             // these messages we need to show the correct screen before processing the message
             // below so that the screen will get the message.
             match msg {
-                /*
-                Message::SelectSpokenLanguage { .. } => {
-                    // show the spoken language selection screen before the message is processed
-                    self.screen.push(Screens::Spoken);
-                }
-                Message::SelectProgrammingLanguage { .. } => {
-                    // show the programming language selection screen before the message is processed
-                    self.screen.push(Screens::Programming);
-                }
-                */
                 Message::SelectWorkshop { .. } => {
                     // show the workshop selection screen before the message is processed
                     self.screen.push(Screens::Workshops);
                 }
-                /*
-                Message::SelectLesson { .. } => {
-                    // show the lesson selection screen before the message is processed
-                    self.screen.push(Screens::Lessons);
-                }
-                Message::SetSpokenLanguageDefault { .. } => {
-                    // show the set default screen before the message is processed
-                    self.screen.push(Screens::SpokenSetDefault);
-                }
-                */
                 _ => {}
             }
         }
+        */
 
         // pass the message to the current screen
         if let Some(screen_type) = self.screen.last() {

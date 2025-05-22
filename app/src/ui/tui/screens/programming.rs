@@ -23,8 +23,6 @@ pub struct Programming<'a> {
     programming_languages: Vec<programming::Code>,
     /// the currenttly selected programming language
     programming_language: Option<programming::Code>,
-    /// whether their selection sets the default value
-    set_default: bool,
     /// the cached rect from last render
     area: Rect,
     /// the cached calculated rect
@@ -41,11 +39,10 @@ impl Programming<'_> {
         &mut self,
         programming_languages: &[programming::Code],
         programming_language: Option<programming::Code>,
-        set_default: bool,
     ) {
         self.programming_languages = programming_languages.to_vec();
         self.programming_language = programming_language;
-        self.set_default = set_default;
+
         let mut programming_language_names = vec!["Any".to_string()];
         programming_language_names.extend(
             programming_languages
@@ -59,6 +56,7 @@ impl Programming<'_> {
             },
             None => Some(0),
         };
+
         self.list_state.select(select_index);
         self.list = List::new(programming_language_names)
             .block(
@@ -81,15 +79,15 @@ impl Programming<'_> {
     fn recalculate_rect(&mut self, area: Rect) {
         if self.area != area {
             let [_, hc, _] = Layout::horizontal([
-                Constraint::Percentage(10),
-                Constraint::Min(1),
-                Constraint::Percentage(10),
+                Constraint::Fill(1),
+                Constraint::Max(44),
+                Constraint::Fill(1),
             ])
             .areas(area);
             [_, self.centered, _] = Layout::vertical([
-                Constraint::Percentage(10),
-                Constraint::Min(1),
-                Constraint::Percentage(10),
+                Constraint::Fill(1),
+                Constraint::Percentage(33),
+                Constraint::Fill(1),
             ])
             .areas(hc);
         }
@@ -139,7 +137,7 @@ impl Screen for Programming<'_> {
                 KeyCode::Char('k') | KeyCode::Up => self.list_state.select_previous(),
                 KeyCode::Enter => {
                     if let Some(selected) = self.list_state.selected() {
-                        let code = if selected == 0 {
+                        let programming_language = if selected == 0 {
                             info!("Programming language selected: Any");
                             None
                         } else {
@@ -155,11 +153,12 @@ impl Screen for Programming<'_> {
                             }
                         };
                         to_engine
-                            .send(Message::SetProgrammingLanguage { code })
+                            .send(Message::SetProgrammingLanguage {
+                                programming_language,
+                            })
                             .await?;
                         return Ok(Some(UiEvent::SetProgrammingLanguage {
-                            code,
-                            set_default: self.set_default,
+                            programming_language,
                         }));
                     }
                 }
@@ -177,15 +176,10 @@ impl Screen for Programming<'_> {
         if let Message::SelectProgrammingLanguage {
             programming_languages,
             programming_language,
-            set_default,
         } = msg
         {
             info!("Select programming language: {:?}", programming_languages);
-            self.set_programming_languages(
-                &programming_languages,
-                programming_language,
-                set_default,
-            );
+            self.set_programming_languages(&programming_languages, programming_language);
             return Ok(Some(UiEvent::SelectProgrammingLanguage));
         }
         Ok(None)
