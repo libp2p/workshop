@@ -6,11 +6,14 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use tracing::info;
 
+const DEFAULT_MAX_LOG_LINES: usize = 1000;
+
 /// Represents the application configuration
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct LocalConfig {
     config_dir: PathBuf,
     data_dir: PathBuf,
+    max_log_lines: Option<usize>,
     #[serde(skip)]
     pwd: PathBuf,
     spoken_language: Option<spoken::Code>,
@@ -52,6 +55,7 @@ impl LocalConfig {
             let config = LocalConfig {
                 config_dir,
                 data_dir,
+                max_log_lines: Some(DEFAULT_MAX_LOG_LINES),
                 pwd,
                 spoken_language: None,
                 programming_language: None,
@@ -84,6 +88,14 @@ impl LocalConfig {
     /// Get the path to the application config directory
     pub fn config_dir(&self) -> &Path {
         self.config_dir.as_path()
+    }
+
+    /// Get the max log lines
+    pub fn max_log_lines(&self) -> usize {
+        match self.max_log_lines {
+            Some(lines) => lines,
+            None => DEFAULT_MAX_LOG_LINES,
+        }
     }
 
     /// Save the config to a file

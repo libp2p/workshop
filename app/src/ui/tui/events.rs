@@ -41,4 +41,8 @@ pub enum Event {
     SetProgrammingLanguageDefault {
         programming_language: Option<programming::Code>,
     },
+    /// Select the lesson
+    SelectLesson,
+    /// Set the selected lesson
+    SetLesson(String),
 }

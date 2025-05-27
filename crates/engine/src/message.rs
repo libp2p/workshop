@@ -26,8 +26,13 @@ pub enum Message {
     },
     /// Select lesson  UI <-- Engine
     SelectLesson {
-        /// supported lessons
-        lessons: Vec<Lesson>,
+        /// lessons in the selected workshop
+        lessons: HashMap<String, Lesson>,
+    },
+    /// Set the lesson  UI --> Engine
+    SetLesson {
+        /// lesson key
+        name: String,
     },
     /// Get the license text  UI --> Engine
     GetLicense {

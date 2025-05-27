@@ -1,3 +1,5 @@
+pub mod lessons;
+pub use lessons::Lessons;
 pub mod license;
 pub use license::License;
 pub mod log;

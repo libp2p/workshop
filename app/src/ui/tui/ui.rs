@@ -48,7 +48,7 @@ impl Ui {
             to_engine,
             from_engine,
             from_logger,
-            config,
+            config: config.clone(),
             screens: HashMap::with_capacity(5),
             screen: vec![Screens::Workshops],
             last_frame_duration: Duration::default(),
@@ -58,8 +58,10 @@ impl Ui {
         ui.screens
             .insert(Screens::Workshops, Box::new(screens::Workshops::default()));
         // TODO: pull max_log from config
-        ui.screens
-            .insert(Screens::Log, Box::new(screens::Log::new(1000)));
+        ui.screens.insert(
+            Screens::Log,
+            Box::new(screens::Log::new(config.max_log_lines())),
+        );
         ui.screens
             .insert(Screens::License, Box::new(screens::License::default()));
         ui.screens
