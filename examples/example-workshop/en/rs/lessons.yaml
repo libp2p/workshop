@@ -1,0 +1,2 @@
+dependency_check_script: deps.py
+setup_instructions: setup.md
