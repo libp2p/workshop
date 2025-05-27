@@ -5,5 +5,6 @@ Before staritng this workshop, please set up a new Rust project using the follow
 ```sh
 cargo new --bin hello-world
 cd hello-world
-workshop
 ```
+
+After creating the project folder, re-run the `workshop` command and select this workshop.

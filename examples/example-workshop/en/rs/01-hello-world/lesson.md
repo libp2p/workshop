@@ -17,13 +17,13 @@ Create a Rust program that prints "Hello, world!" to the console.
 
 To complete this task:
 
-1. Create a new file named `main.rs` in the current directory
+1. Edit the file named `main.rs` in the `src/` subfolder of your Rust project
 2. Write a Rust program that prints "Hello, world!" to the console
 3. Run the check command to verify your solution
 
 ## Hint - Getting Started
 
-To create a new Rust file, you can use any text editor to create a file named `main.rs`.
+The `main.rs` file is created automatically in the `src/` subfolder when you create a new Rust project using Cargo. Open it with your favorite text editor or IDE.
 
 Here's the basic structure of a Rust program:
 
