@@ -26,6 +26,10 @@ enum FocusedView {
 pub struct Workshops<'a> {
     /// the list of workshops
     workshops: HashMap<String, Workshop>,
+    /// the descriptions of the workshops
+    descriptions: HashMap<String, String>,
+    /// the setup instructions of the workshops
+    setup_instructions: HashMap<String, String>,
     /// the cached list
     titles: List<'a>,
     /// the list state of workshop title
@@ -45,6 +49,8 @@ impl Workshops<'_> {
     fn set_workshops(
         &mut self,
         workshops: &HashMap<String, Workshop>,
+        descriptions: &HashMap<String, String>,
+        setup_instructions: &HashMap<String, String>,
         spoken_language: Option<spoken::Code>,
         programming_language: Option<programming::Code>,
     ) {
@@ -93,6 +99,18 @@ impl Workshops<'_> {
         self.workshops.get(workshop_key.as_str())
     }
 
+    /// get the description of the selected workshop
+    fn get_selected_workshop_description(&self) -> Option<&String> {
+        let workshop_key = self.get_selected_workshop_key()?;
+        self.descriptions.get(workshop_key.as_str())
+    }
+
+    /// get the setup instructions of the selected workshop
+    fn get_selected_workshop_setup_instructions(&self) -> Option<&String> {
+        let workshop_key = self.get_selected_workshop_key()?;
+        self.setup_instructions.get(workshop_key.as_str())
+    }
+
     /// get the sorted list of workshop keys
     fn get_workshop_keys(&self) -> Vec<String> {
         let mut workshop_keys = self.workshops.keys().cloned().collect::<Vec<_>>();
@@ -131,9 +149,9 @@ impl Workshops<'_> {
 
     /// render the workshop info
     fn render_workshop_info(&mut self, area: Rect, buf: &mut Buffer) {
-        let mut details = match self.get_selected_workshop() {
+        let mut details = String::new();
+        match self.get_selected_workshop() {
             Some(workshop) => {
-                let mut details = String::new();
                 details.push_str("Authors: \n");
                 details.push_str(
                     &workshop
@@ -151,18 +169,30 @@ impl Workshops<'_> {
                 details.push_str(&workshop.homepage);
                 details.push_str("\nDifficulty: ");
                 details.push_str(&workshop.difficulty);
-                /*
-                details.push_str("\n\n");
-                details.push_str(&workshop.description);
-                details.push_str("\n\n");
-                details.push_str(&workshop.setup);
-                */
-                details
             }
             None => {
-                "No workshops support the selected spoken and programming languages".to_string()
+                details
+                    .push_str("No workshops support the selected spoken and programming languages");
             }
-        };
+        }
+        match self.get_selected_workshop_description() {
+            Some(description) => {
+                details.push_str("\n\n");
+                details.push_str(description);
+            }
+            None => {
+                details.push_str("\n\nNo description available for this workshop.");
+            }
+        }
+        match self.get_selected_workshop_setup_instructions() {
+            Some(setup) => {
+                details.push_str("\n\n");
+                details.push_str(setup);
+            }
+            None => {
+                details.push_str("\n\nNo setup instructions available for this workshop.");
+            }
+        }
 
         let fg = match self.focused {
             FocusedView::List => Color::DarkGray,
@@ -320,12 +350,20 @@ impl Screen for Workshops<'_> {
     ) -> Result<Option<UiEvent>, Error> {
         if let Message::SelectWorkshop {
             workshops,
+            descriptions,
+            setup_instructions,
             spoken_language,
             programming_language,
         } = msg
         {
             info!("Showing select workshop screen");
-            self.set_workshops(&workshops, spoken_language, programming_language);
+            self.set_workshops(
+                &workshops,
+                &descriptions,
+                &setup_instructions,
+                spoken_language,
+                programming_language,
+            );
             return Ok(Some(UiEvent::SelectWorkshop));
         }
         Ok(None)

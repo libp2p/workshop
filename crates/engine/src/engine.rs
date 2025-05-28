@@ -1,4 +1,5 @@
 use crate::{Config, Error, Fs, Message, State, Workshop};
+use futures::stream::StreamExt;
 use languages::{programming, spoken};
 use std::collections::HashMap;
 use tokio::{
@@ -136,15 +137,35 @@ impl Engine {
                     );
                     let mut workshops =
                         HashMap::<String, Workshop>::with_capacity(workshops_data.len());
-                    for (name, workshop) in workshops_data.iter() {
-                        workshops.insert(
-                            name.clone(),
-                            workshop.get_metadata(self.fs.get_spoken_language()).await?,
-                        );
-                    }
+                    let mut descriptions =
+                        HashMap::<String, String>::with_capacity(workshops.len());
+                    let mut setup_instructions =
+                        HashMap::<String, String>::with_capacity(workshops.len());
+                    let spoken_language = self.fs.get_spoken_language();
+                    futures::stream::iter(workshops_data.iter())
+                        .try_for_each(|(name, workshop)| async move {
+                            workshops.insert(
+                                name.clone(),
+                                workshop.get_metadata(spoken_language.clone()).await?,
+                            );
+                            descriptions.insert(
+                                name.clone(),
+                                workshop.get_description(spoken_language.clone()).await?,
+                            );
+                            setup_instructions.insert(
+                                name.clone(),
+                                workshop
+                                    .get_setup_instructions(spoken_language.clone())
+                                    .await?,
+                            );
+                            Ok(())
+                        })
+                        .collect::<Result<(), Error>>()?;
                     self.to_ui
                         .send(Message::SelectWorkshop {
                             workshops,
+                            descriptions,
+                            setup_instructions,
                             spoken_language: self.fs.get_spoken_language(),
                             programming_language: self.fs.get_programming_language(),
                         })

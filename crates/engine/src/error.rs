@@ -44,6 +44,21 @@ pub enum Error {
     #[error("Lesson not found: {0}")]
     LessonNotFound(String),
 
+    #[error("Lesson data directory not found")]
+    LessonDataDirNotFound,
+
+    #[error("Lesson text file missing")]
+    LessonTextFileMissing,
+
+    #[error("Lesson metadata file missing")]
+    LessonMetadataFileMissing,
+
+    #[error("No spoken language specified")]
+    NoSpokenLanguageSpecified,
+
+    #[error("No programming language specified")]
+    NoProgrammingLanguageSpecified,
+
     #[error("Failed to run dependency check: {0}")]
     DependencyCheckFailed(String),
 

@@ -131,21 +131,21 @@ impl Fs {
                 entry.ok().and_then(|e| {
                     let name = e.file_name().to_string_lossy().to_string();
                     if e.path().is_dir() {
-                        Some((name.clone(), self.get_workshop_data(&name).ok()?))
+                        let workshop_data = workshop::Loader::new(&name)
+                            .path(&self.data_dir)
+                            .try_load()
+                            .ok()?;
+                        if !self.is_workshop_data_filtered(&workshop_data) {
+                            Some((name.clone(), workshop_data))
+                        } else {
+                            None
+                        }
                     } else {
                         None
                     }
                 })
             })
             .collect())
-    }
-
-    /// Get a specific workshop by name
-    pub(crate) fn get_workshop_data(&self, name: &str) -> Result<WorkshopData, Error> {
-        workshop::Loader::default()
-            .name(name)
-            .path(&self.data_dir)
-            .try_load()
     }
 
     /// Get all workshops that support the given spoken and programming languages
@@ -158,7 +158,15 @@ impl Fs {
                 entry.ok().and_then(|e| {
                     let name = e.file_name().to_string_lossy().to_string();
                     if e.path().is_dir() {
-                        Some((name.clone(), self.get_workshop_data_filtered(&name).ok()?))
+                        let workshop_data = workshop::Loader::new(&name)
+                            .path(&self.data_dir)
+                            .try_load()
+                            .ok()?;
+                        if !self.is_workshop_data_filtered(&workshop_data) {
+                            Some((name.clone(), workshop_data))
+                        } else {
+                            None
+                        }
                     } else {
                         None
                     }
@@ -168,24 +176,24 @@ impl Fs {
     }
 
     /// Get a workshop by name, iff it supports the given spoken and programming languages
-    pub(crate) fn get_workshop_data_filtered(&self, name: &str) -> Result<WorkshopData, Error> {
+    fn is_workshop_data_filtered(&self, workshop_data: &WorkshopData) -> bool {
+        let name = workshop_data.get_name();
         info!("(engine) get_workshop_data_filtered: {}", name);
-        let workshop = self.get_workshop_data(name)?;
         if let Some(spoken) = self.spoken_language {
             info!("(engine) - spoken: {}", spoken.get_name_in_english());
-            if !workshop.get_all_spoken_languages().contains(&spoken) {
+            if !workshop_data.get_all_spoken_languages().contains(&spoken) {
                 info!("(engine)   - not a supported spoken language");
-                return Err(Error::WorkshopNotFound(name.to_string()));
+                return false;
             }
             info!("(engine)   - a supported spoken language");
             if let Some(programming) = self.programming_language {
                 info!("(engine) - programming: {}", programming.get_name());
-                if !workshop
-                    .get_programming_languages_for_spoken_language(spoken)?
+                if !workshop_data
+                    .get_programming_languages_for_spoken_language(spoken)
                     .contains(&programming)
                 {
                     info!("(engine)   - not a supported programming language");
-                    return Err(Error::WorkshopNotFound(name.to_string()));
+                    return false;
                 }
                 info!("(engine)   - a supported programming language");
             } else {
@@ -195,17 +203,17 @@ impl Fs {
             info!("(engine) - spoken: Any");
             if let Some(programming) = self.programming_language {
                 info!("(engine) - programming: {}", programming.get_name());
-                if !workshop
+                if !workshop_data
                     .get_all_programming_languages()
                     .contains(&programming)
                 {
                     info!("(engine)   - not a supported programming language");
-                    return Err(Error::WorkshopNotFound(name.to_string()));
+                    return false;
                 }
                 info!("(engine)   - a supported programming language");
             }
         }
-        Ok(workshop)
+        true
     }
 
     pub fn get_lessons_data_filtered(&self, _name: &str) -> Result<Vec<Lesson>, Error> {

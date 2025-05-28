@@ -20,6 +20,7 @@ pub(crate) use lazy_loader::{LazyLoader, TryLoad};
 
 /// the lesson model
 pub mod lesson;
+pub(crate) use lesson::LessonData;
 pub use lesson::{Lesson, Status as LessonStatus};
 
 /// the engine log
