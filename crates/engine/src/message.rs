@@ -1,6 +1,6 @@
 use crate::{Config, Lesson, Workshop};
 use languages::{programming, spoken};
-use std::collections::HashMap;
+use std::{collections::HashMap, fmt};
 
 /// Engine messages
 pub enum Message {
@@ -14,18 +14,58 @@ pub enum Message {
     SelectWorkshop {
         /// supported workshops
         workshops: HashMap<String, Workshop>,
-        /// the descriptions for the supported workshops
-        descriptions: HashMap<String, String>,
-        /// the setup instructions for the supported workshops
-        setup_instructions: HashMap<String, String>,
-        /// all of the spoken languages the workshop has been translated to
-        spoken_languages: HashMap<String, Vec<spoken::Code>>,
-        /// all of the programming languages the workshop has been ported to
-        programming_languages: HashMap<String, Vec<programming::Code>>,
         /// the current selected spoken language
         spoken_language: Option<spoken::Code>,
         /// the current selected programming language
         programming_language: Option<programming::Code>,
+    },
+    /// Get workshop description
+    GetWorkshopDescription {
+        /// workshop key
+        name: String,
+    },
+    /// Show the workshop description
+    ShowWorkshopDescription {
+        /// workshop key
+        name: String,
+        /// workshop description text
+        text: String,
+    },
+    /// Get workshop setup instructions
+    GetWorkshopSetupInstructions {
+        /// workshop key
+        name: String,
+    },
+    /// Show the workshop setup instructions
+    ShowWorkshopSetupInstructions {
+        /// workshop key
+        name: String,
+        /// workshop description text
+        text: String,
+    },
+    /// Get workshop spoken languages
+    GetWorkshopSpokenLanguages {
+        /// workshop key
+        name: String,
+    },
+    /// Show the workshop spoken languages
+    ShowWorkshopSpokenLanguages {
+        /// workshop key
+        name: String,
+        /// workshop spoken languages
+        spoken_languages: Vec<spoken::Code>,
+    },
+    /// Get workshop programming languages
+    GetWorkshopProgrammingLanguages {
+        /// workshop key
+        name: String,
+    },
+    /// Show the workshop programming languages
+    ShowWorkshopProgrammingLanguages {
+        /// workshop key
+        name: String,
+        /// workshop programming languages
+        programming_languages: Vec<programming::Code>,
     },
     /// Set workshop  UI --> Engine
     SetWorkshop {
@@ -105,4 +145,107 @@ pub enum Message {
     Back,
     /// Quit   UI --> Engine
     Quit,
+}
+
+impl fmt::Display for Message {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Message::Log { msg } => write!(f, "Log: {}", msg),
+            Message::Config { .. } => write!(f, "Config message"),
+            Message::SelectWorkshop { workshops, .. } => {
+                write!(f, "SelectWorkshop with {} workshops", workshops.len())
+            }
+            Message::GetWorkshopDescription { name } => {
+                write!(f, "GetWorkshopDescription for workshop: {}", name)
+            }
+            Message::ShowWorkshopDescription { name, text } => {
+                write!(f, "ShowWorkshopDescription: {} {}", name, text)
+            }
+            Message::GetWorkshopSetupInstructions { name } => {
+                write!(f, "GetWorkshopSetupInstructions for workshop: {}", name)
+            }
+            Message::ShowWorkshopSetupInstructions { name, text } => {
+                write!(f, "ShowWorkshopSetupInstructions: {} {}", name, text)
+            }
+            Message::GetWorkshopSpokenLanguages { name } => {
+                write!(f, "GetWorkshopSpokenLanguages for workshop: {}", name)
+            }
+            Message::ShowWorkshopSpokenLanguages {
+                name,
+                spoken_languages,
+            } => {
+                write!(
+                    f,
+                    "ShowWorkshopSpokenLanguages: {} with {} languages",
+                    name,
+                    spoken_languages.len()
+                )
+            }
+            Message::GetWorkshopProgrammingLanguages { name } => {
+                write!(f, "GetWorkshopProgrammingLanguages for workshop: {}", name)
+            }
+            Message::ShowWorkshopProgrammingLanguages {
+                name,
+                programming_languages,
+            } => {
+                write!(
+                    f,
+                    "ShowWorkshopProgrammingLanguages: {} with {} languages",
+                    name,
+                    programming_languages.len()
+                )
+            }
+            Message::SetWorkshop { name } => write!(f, "SetWorkshop: {}", name),
+            Message::SelectLesson { lessons, .. } => {
+                write!(f, "SelectLesson with {} lessons", lessons.len())
+            }
+            Message::SetLesson { name } => write!(f, "SetLesson: {}", name),
+            Message::GetLicense { name } => write!(f, "GetLicense for workshop: {}", name),
+            Message::ShowLicense { text } => write!(f, "ShowLicense: {}", text),
+            Message::ChangeSpokenLanguage => write!(f, "ChangeSpokenLanguage"),
+            Message::SelectSpokenLanguage {
+                spoken_languages, ..
+            } => {
+                write!(
+                    f,
+                    "SelectSpokenLanguage with {} languages",
+                    spoken_languages.len()
+                )
+            }
+            Message::SetSpokenLanguage { spoken_language } => {
+                write!(f, "SetSpokenLanguage: {:?}", spoken_language)
+            }
+            Message::SetSpokenLanguageDefault { spoken_language } => {
+                write!(f, "SetSpokenLanguageDefault: {:?}", spoken_language)
+            }
+            Message::ChangeProgrammingLanguage => write!(f, "ChangeProgrammingLanguage"),
+            Message::SelectProgrammingLanguage {
+                programming_languages,
+                ..
+            } => {
+                write!(
+                    f,
+                    "SelectProgrammingLanguage with {} languages",
+                    programming_languages.len()
+                )
+            }
+            Message::SetProgrammingLanguage {
+                programming_language,
+            } => {
+                write!(f, "SetProgrammingLanguage: {:?}", programming_language)
+            }
+            Message::SetProgrammingLanguageDefault {
+                programming_language,
+            } => {
+                write!(
+                    f,
+                    "SetProgrammingLanguageDefault: {:?}",
+                    programming_language
+                )
+            }
+            Message::Error { error } => write!(f, "Error: {}", error),
+            Message::Back => write!(f, "Back"),
+            Message::Quit => write!(f, "Quit"),
+        }
+    }
 }

@@ -14,10 +14,10 @@ pub struct LocalConfig {
     config_dir: PathBuf,
     data_dir: PathBuf,
     max_log_lines: Option<usize>,
-    #[serde(skip)]
-    pwd: PathBuf,
     spoken_language: Option<spoken::Code>,
     programming_language: Option<programming::Code>,
+    #[serde(skip)]
+    pwd: PathBuf,
 }
 
 impl LocalConfig {
@@ -43,12 +43,9 @@ impl LocalConfig {
         let config_path = config_dir.join("config.yaml");
         if config_path.exists() {
             info!("Loading config from: {}", config_path.display());
-            let config: LocalConfig = serde_yaml::from_reader(std::fs::File::open(&config_path)?)?;
-            info!("Preferred spoken language: {:?}", config.spoken_language);
-            info!(
-                "Preferred programming language: {:?}",
-                config.programming_language
-            );
+            let mut config: LocalConfig =
+                serde_yaml::from_reader(std::fs::File::open(&config_path)?)?;
+            config.pwd = pwd.clone();
             Ok(config)
         } else {
             info!("Creating config at: {}", config_path.display());

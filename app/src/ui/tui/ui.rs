@@ -44,6 +44,7 @@ impl Ui {
         from_logger: Receiver<Message>,
         config: LocalConfig,
     ) -> Self {
+        info!("(ui) creating UI with config: {:?}", config);
         let mut ui = Self {
             to_engine,
             from_engine,
@@ -91,7 +92,7 @@ impl Ui {
         let mut reader = EventStream::new();
 
         // set our timeout to ~16.67 ms (60 FPS)
-        let target_frame_duration = Duration::from_secs_f64(1.0 / 30.0);
+        let target_frame_duration = Duration::from_secs_f64(1.0 / 60.0);
 
         // initial timeout
         let mut timeout = Delay::new(target_frame_duration);
@@ -106,6 +107,7 @@ impl Ui {
         let mut running = true;
 
         // send the config message to the engine
+        info!("(ui) sending Config to engine");
         self.to_engine
             .send(Message::Config {
                 config: Box::new(self.config.clone()),
@@ -212,6 +214,7 @@ impl Ui {
     }
 
     pub async fn handle_ui_event(&mut self, ui_event: UiEvent) -> Result<bool, Error> {
+        info!("(ui) handle_ui_event: {:?}", ui_event);
         match ui_event {
             UiEvent::Back => {
                 if !self.screen.is_empty() {
@@ -224,36 +227,86 @@ impl Ui {
                 self.to_engine.send(Message::Quit).await?;
                 return Ok(false);
             }
-            UiEvent::SelectWorkshop => {
-                info!("showing workshop selection screen");
-                // show the workshop selection screen
-                self.screen.push(Screens::Workshops);
+            UiEvent::SelectWorkshop(ref workshop_key) => {
+                if self.screen.last() != Some(&Screens::Workshops) {
+                    info!("(ui) showing workshop selection screen");
+                    // show the workshop selection screen
+                    self.screen.push(Screens::Workshops);
+                }
+
+                info!("(ui) Get workshop description: {}", workshop_key);
+                self.to_engine
+                    .send(Message::GetWorkshopDescription {
+                        name: workshop_key.clone(),
+                    })
+                    .await?;
+
+                info!("(ui) Get workshop setup instructions: {}", workshop_key);
+                self.to_engine
+                    .send(Message::GetWorkshopSetupInstructions {
+                        name: workshop_key.clone(),
+                    })
+                    .await?;
+
+                info!("(ui) Get workshop spoken languages: {}", workshop_key);
+                self.to_engine
+                    .send(Message::GetWorkshopSpokenLanguages {
+                        name: workshop_key.clone(),
+                    })
+                    .await?;
+
+                info!("(ui) Get workshop programming languages: {}", workshop_key);
+                self.to_engine
+                    .send(Message::GetWorkshopProgrammingLanguages {
+                        name: workshop_key.clone(),
+                    })
+                    .await?;
             }
-            UiEvent::SetWorkshop(ref workshop) => {
-                info!("workshop selected: {}", workshop);
+            UiEvent::SetWorkshop(ref workshop_key) => {
+                if self.screen.last() == Some(&Screens::Workshops) {
+                    info!("(ui) showing lesson select screen");
+                    self.screen.push(Screens::Lessons);
+
+                    info!("(ui) workshop selected: {}", workshop_key);
+                    self.to_engine
+                        .send(Message::SetWorkshop {
+                            name: workshop_key.clone(),
+                        })
+                        .await?;
+                }
             }
             UiEvent::ToggleLog => {
                 if self.screen.last() != Some(&Screens::Log) {
-                    info!("showing log screen");
+                    info!("(ui) showing log screen");
                     self.screen.push(Screens::Log);
                 } else {
-                    info!("hiding log screen");
+                    info!("(ui) hiding log screen");
                     self.screen.pop();
                 }
             }
-            UiEvent::ShowLicense => {
+            UiEvent::GetLicense(ref workshop_key) => {
                 if self.screen.last() != Some(&Screens::License) {
-                    info!("showing license popup");
+                    info!("(ui) showing license popup");
                     self.screen.push(Screens::License);
+
+                    info!("(ui) Get license: {}", workshop_key);
+                    self.to_engine
+                        .send(Message::GetLicense {
+                            name: workshop_key.clone(),
+                        })
+                        .await?;
                 }
+            }
+            UiEvent::ShowLicense => {
+                info!("(ui) show license");
             }
             UiEvent::Homepage(url) => {
                 if let Err(e) = webbrowser::open(&url) {
-                    error!("Failed to open URL: {}", e);
+                    error!("(ui) Failed to open URL: {}", e);
                 }
             }
             UiEvent::ChangeSpokenLanguage => {
-                info!("Change spoken language");
+                info!("(ui) Change spoken language");
                 if self.screen.last() != Some(&Screens::Spoken) {
                     // show the spoken language selection screen
                     self.screen.push(Screens::Spoken);
@@ -262,7 +315,7 @@ impl Ui {
                 self.to_engine.send(Message::ChangeSpokenLanguage).await?;
             }
             UiEvent::SelectSpokenLanguage => {
-                info!("Selecting spoken language");
+                info!("(ui) Selecting spoken language");
             }
             UiEvent::SetSpokenLanguage { .. } => {
                 self.screen.pop();
@@ -270,13 +323,16 @@ impl Ui {
                 self.screen.push(Screens::SpokenSetDefault);
             }
             UiEvent::SetSpokenLanguageDefault { spoken_language } => {
-                info!("Saving spoken language as default {:?}", spoken_language);
+                info!(
+                    "(ui) Saving spoken language as default {:?}",
+                    spoken_language
+                );
                 self.config.set_spoken_language(spoken_language)?;
                 self.screen.pop();
                 self.to_engine.send(Message::Back).await?;
             }
             UiEvent::ChangeProgrammingLanguage => {
-                info!("Change programming language");
+                info!("(ui) Change programming language");
                 if self.screen.last() != Some(&Screens::Programming) {
                     // show the programming language selection screen
                     self.screen.push(Screens::Programming);
@@ -286,7 +342,7 @@ impl Ui {
                     .await?;
             }
             UiEvent::SelectProgrammingLanguage => {
-                info!("Selecting programming language");
+                info!("(ui) Selecting programming language");
             }
             UiEvent::SetProgrammingLanguage { .. } => {
                 self.screen.pop();
@@ -297,7 +353,7 @@ impl Ui {
                 programming_language,
             } => {
                 info!(
-                    "Saving programming language as default {:?}",
+                    "(ui) Saving programming language as default {:?}",
                     programming_language
                 );
                 self.config.set_programming_language(programming_language)?;
@@ -305,12 +361,12 @@ impl Ui {
                 self.to_engine.send(Message::Back).await?;
             }
             UiEvent::SelectLesson => {
-                info!("showing lesson selection screen");
+                info!("(ui) showing lesson selection screen");
                 // show the workshop selection screen
                 self.screen.push(Screens::Workshops);
             }
             UiEvent::SetLesson(ref lesson) => {
-                info!("lesson selected: {}", lesson);
+                info!("(ui) lesson selected: {}", lesson);
             }
         }
         Ok(true)
@@ -359,6 +415,7 @@ impl Screen for Ui {
 
         // pass the message to the current screen
         if let Some(screen_type) = self.screen.last() {
+            info!("(ui) handle_message screen type: {:?}", screen_type);
             if let Some(screen) = self.screens.get_mut(screen_type) {
                 return screen.handle_message(msg, to_engine).await;
             } else {

@@ -26,13 +26,13 @@ enum FocusedView {
 pub struct Workshops<'a> {
     /// the list of workshops
     workshops: HashMap<String, Workshop>,
-    /// the descriptions of the workshops
+    /// the cached descriptions of the workshops
     descriptions: HashMap<String, String>,
-    /// the setup instructions of the workshops
+    /// the cached setup instructions of the workshops
     setup_instructions: HashMap<String, String>,
-    /// the spoken languages this workshop has been translated to
+    /// the cached spoken languages this workshop has been translated to
     spoken_languages: HashMap<String, Vec<spoken::Code>>,
-    /// the programming languages this workshop has been ported to
+    /// the cached programming languages this workshop has been ported to
     programming_languages: HashMap<String, Vec<programming::Code>>,
     /// the cached list
     titles: List<'a>,
@@ -53,18 +53,10 @@ impl Workshops<'_> {
     fn set_workshops(
         &mut self,
         workshops: &HashMap<String, Workshop>,
-        descriptions: &HashMap<String, String>,
-        setup_instructions: &HashMap<String, String>,
-        spoken_languages: &HashMap<String, Vec<spoken::Code>>,
-        programming_languages: &HashMap<String, Vec<programming::Code>>,
         spoken_language: Option<spoken::Code>,
         programming_language: Option<programming::Code>,
     ) {
         self.workshops = workshops.clone();
-        self.descriptions = descriptions.clone();
-        self.setup_instructions = setup_instructions.clone();
-        self.spoken_languages = spoken_languages.clone();
-        self.programming_languages = programming_languages.clone();
         self.spoken_language = spoken_language;
         self.programming_language = programming_language;
 
@@ -93,6 +85,58 @@ impl Workshops<'_> {
             .highlight_symbol("> ");
     }
 
+    // set the description for the currently selected workshop
+    fn set_description(&mut self, name: &str, description: &str) {
+        self.descriptions
+            .insert(name.to_string(), description.to_string());
+    }
+
+    // get the currently selected workshop
+    fn get_selected_description(&self) -> Option<&String> {
+        let workshop_key = self.get_selected_workshop_key()?;
+        self.descriptions.get(workshop_key.as_str())
+    }
+
+    // set the setup instructions for the currently selected workshop
+    fn set_setup_instructions(&mut self, name: &str, setup_instructions: &str) {
+        self.setup_instructions
+            .insert(name.to_string(), setup_instructions.to_string());
+    }
+
+    // get the currently selected workshop
+    fn get_selected_setup_instructions(&self) -> Option<&String> {
+        let workshop_key = self.get_selected_workshop_key()?;
+        self.setup_instructions.get(workshop_key.as_str())
+    }
+
+    // set the spoken languages for the currently selected workshop
+    fn set_spoken_languages(&mut self, name: &str, spoken_languages: &[spoken::Code]) {
+        self.spoken_languages
+            .insert(name.to_string(), spoken_languages.to_vec());
+    }
+
+    // get the currently selected workshop
+    fn get_selected_spoken_languages(&self) -> Option<&Vec<spoken::Code>> {
+        let workshop_key = self.get_selected_workshop_key()?;
+        self.spoken_languages.get(workshop_key.as_str())
+    }
+
+    // set the programming languages for the currently selected workshop
+    fn set_programming_languages(
+        &mut self,
+        name: &str,
+        programming_languages: &[programming::Code],
+    ) {
+        self.programming_languages
+            .insert(name.to_string(), programming_languages.to_vec());
+    }
+
+    // get the currently selected workshop
+    fn get_selected_programming_languages(&self) -> Option<&Vec<programming::Code>> {
+        let workshop_key = self.get_selected_workshop_key()?;
+        self.programming_languages.get(workshop_key.as_str())
+    }
+
     // get the selected workshop key
     fn get_selected_workshop_key(&self) -> Option<String> {
         if self.workshops.is_empty() {
@@ -103,37 +147,13 @@ impl Workshops<'_> {
         self.get_workshop_keys().get(selected_index).cloned()
     }
 
-    /// get the currently selected workshop
+    // get the currently selected workshop
     fn get_selected_workshop(&self) -> Option<&Workshop> {
         let workshop_key = self.get_selected_workshop_key()?;
         self.workshops.get(workshop_key.as_str())
     }
 
-    /// get the spoken languages for the selected workshop
-    fn get_selected_workshop_spoken_languages(&self) -> Option<&Vec<spoken::Code>> {
-        let workshop_key = self.get_selected_workshop_key()?;
-        self.spoken_languages.get(workshop_key.as_str())
-    }
-
-    /// get the programming languages for the selected workshop
-    fn get_selected_workshop_programming_languages(&self) -> Option<&Vec<programming::Code>> {
-        let workshop_key = self.get_selected_workshop_key()?;
-        self.programming_languages.get(workshop_key.as_str())
-    }
-
-    /// get the description of the selected workshop
-    fn get_selected_workshop_description(&self) -> Option<&String> {
-        let workshop_key = self.get_selected_workshop_key()?;
-        self.descriptions.get(workshop_key.as_str())
-    }
-
-    /// get the setup instructions of the selected workshop
-    fn get_selected_workshop_setup_instructions(&self) -> Option<&String> {
-        let workshop_key = self.get_selected_workshop_key()?;
-        self.setup_instructions.get(workshop_key.as_str())
-    }
-
-    /// get the sorted list of workshop keys
+    // get the sorted list of workshop keys
     fn get_workshop_keys(&self) -> Vec<String> {
         let mut workshop_keys = self.workshops.keys().cloned().collect::<Vec<_>>();
         workshop_keys.sort();
@@ -181,7 +201,7 @@ impl Workshops<'_> {
                         .iter()
                         .map(|a| format!(" - {a}"))
                         .collect::<Vec<_>>()
-                        .join(", "),
+                        .join("\n"),
                 );
                 details.push_str("\nCopyright: ");
                 details.push_str(&workshop.copyright);
@@ -197,53 +217,33 @@ impl Workshops<'_> {
                     .push_str("No workshops support the selected spoken and programming languages");
             }
         }
-        match self.get_selected_workshop_spoken_languages() {
-            Some(spoken_languages) => {
-                details.push_str("\n\n");
-                details.push_str(
-                    &spoken_languages
-                        .iter()
-                        .map(|c| c.to_string())
-                        .collect::<Vec<_>>()
-                        .join(", "),
-                );
-            }
-            None => {
-                details.push_str("\n\nNo spoken languages supported");
-            }
+        if let Some(spoken_languages) = self.get_selected_spoken_languages() {
+            details.push_str("\nSpoken Languages:\n");
+            details.push_str(
+                &spoken_languages
+                    .iter()
+                    .map(|c| format!(" - {}", c.get_name_in_native()))
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+            );
         }
-        match self.get_selected_workshop_programming_languages() {
-            Some(programming_languages) => {
-                details.push_str("\n\n");
-                details.push_str(
-                    &programming_languages
-                        .iter()
-                        .map(|c| c.to_string())
-                        .collect::<Vec<_>>()
-                        .join(", "),
-                );
-            }
-            None => {
-                details.push_str("\n\nNo programming languages supported");
-            }
+        if let Some(programming_languages) = self.get_selected_programming_languages() {
+            details.push_str("\nProgramming Languages:\n");
+            details.push_str(
+                &programming_languages
+                    .iter()
+                    .map(|c| format!(" - {}", c.get_name()))
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+            );
         }
-        match self.get_selected_workshop_description() {
-            Some(description) => {
-                details.push_str("\n\n");
-                details.push_str(description);
-            }
-            None => {
-                details.push_str("\n\nNo description available for this workshop.");
-            }
+        if let Some(description) = self.get_selected_description() {
+            details.push_str("\n\n");
+            details.push_str(description);
         }
-        match self.get_selected_workshop_setup_instructions() {
-            Some(setup) => {
-                details.push_str("\n\n");
-                details.push_str(setup);
-            }
-            None => {
-                details.push_str("\n\nNo setup instructions available for this workshop.");
-            }
+        if let Some(setup_instructions) = self.get_selected_setup_instructions() {
+            details.push_str("\n\n");
+            details.push_str(setup_instructions);
         }
 
         let fg = match self.focused {
@@ -332,30 +332,49 @@ impl Screen for Workshops<'_> {
     async fn handle_event(
         &mut self,
         evt: Event,
-        to_engine: Sender<Message>,
+        _to_engine: Sender<Message>,
     ) -> Result<Option<UiEvent>, Error> {
         if let Event::Key(key) = evt {
             match key.code {
                 KeyCode::PageUp => match self.focused {
-                    FocusedView::List => self.titles_state.select_first(),
+                    FocusedView::List => {
+                        self.titles_state.select_first();
+                        if let Some(workshop_key) = self.get_selected_workshop_key() {
+                            return Ok(Some(UiEvent::SelectWorkshop(workshop_key)));
+                        }
+                    }
                     FocusedView::Info => self.st.scroll_top(),
                 },
-                KeyCode::PageDown => self.st.scroll_bottom(),
+                KeyCode::PageDown => match self.focused {
+                    FocusedView::List => {
+                        self.titles_state.select_last();
+                        if let Some(workshop_key) = self.get_selected_workshop_key() {
+                            return Ok(Some(UiEvent::SelectWorkshop(workshop_key)));
+                        }
+                    }
+                    FocusedView::Info => self.st.scroll_bottom(),
+                },
                 KeyCode::Char('j') | KeyCode::Char('J') | KeyCode::Down => match self.focused {
-                    FocusedView::List => self.titles_state.select_next(),
+                    FocusedView::List => {
+                        self.titles_state.select_next();
+                        if let Some(workshop_key) = self.get_selected_workshop_key() {
+                            return Ok(Some(UiEvent::SelectWorkshop(workshop_key)));
+                        }
+                    }
                     FocusedView::Info => self.st.scroll_down(),
                 },
                 KeyCode::Char('k') | KeyCode::Char('K') | KeyCode::Up => match self.focused {
-                    FocusedView::List => self.titles_state.select_previous(),
+                    FocusedView::List => {
+                        self.titles_state.select_previous();
+                        if let Some(workshop_key) = self.get_selected_workshop_key() {
+                            return Ok(Some(UiEvent::SelectWorkshop(workshop_key)));
+                        }
+                    }
                     FocusedView::Info => self.st.scroll_up(),
                 },
                 KeyCode::Char('l') | KeyCode::Char('L') => {
                     if let Some(workshop_key) = self.get_selected_workshop_key() {
-                        info!("Get license: {}", workshop_key);
-                        to_engine
-                            .send(Message::GetLicense { name: workshop_key })
-                            .await?;
-                        return Ok(Some(UiEvent::ShowLicense));
+                        return Ok(Some(UiEvent::GetLicense(workshop_key)));
                     }
                 }
                 KeyCode::Char('p') | KeyCode::Char('P') => {
@@ -366,12 +385,12 @@ impl Screen for Workshops<'_> {
                 }
                 KeyCode::Char('w') | KeyCode::Char('W') => {
                     if let Some(workshop) = self.get_selected_workshop() {
-                        info!("Open homepage: {}", workshop.homepage);
+                        info!("(ui) Open homepage: {}", workshop.homepage);
                         return Ok(Some(UiEvent::Homepage(workshop.homepage.clone())));
                     }
                 }
                 KeyCode::Tab => {
-                    info!("Switch focus");
+                    info!("(ui) Switch focus");
                     self.focused = match self.focused {
                         FocusedView::List => FocusedView::Info,
                         FocusedView::Info => FocusedView::List,
@@ -379,12 +398,6 @@ impl Screen for Workshops<'_> {
                 }
                 KeyCode::Enter => {
                     if let Some(workshop_key) = self.get_selected_workshop_key() {
-                        info!("Workshop selected: {}", workshop_key);
-                        to_engine
-                            .send(Message::SetWorkshop {
-                                name: workshop_key.clone(),
-                            })
-                            .await?;
                         return Ok(Some(UiEvent::SetWorkshop(workshop_key)));
                     }
                 }
@@ -400,27 +413,41 @@ impl Screen for Workshops<'_> {
         msg: Message,
         _to_engine: Sender<Message>,
     ) -> Result<Option<UiEvent>, Error> {
-        if let Message::SelectWorkshop {
-            workshops,
-            descriptions,
-            setup_instructions,
-            spoken_languages,
-            programming_languages,
-            spoken_language,
-            programming_language,
-        } = msg
-        {
-            info!("Showing select workshop screen");
-            self.set_workshops(
-                &workshops,
-                &descriptions,
-                &setup_instructions,
-                &spoken_languages,
-                &programming_languages,
+        match msg {
+            Message::SelectWorkshop {
+                workshops,
                 spoken_language,
                 programming_language,
-            );
-            return Ok(Some(UiEvent::SelectWorkshop));
+            } => {
+                info!("(ui) showing select workshop screen");
+                self.set_workshops(&workshops, spoken_language, programming_language);
+                if let Some(workshop_key) = self.get_selected_workshop_key() {
+                    return Ok(Some(UiEvent::SelectWorkshop(workshop_key)));
+                }
+            }
+            Message::ShowWorkshopDescription { ref name, ref text } => {
+                info!("(ui) showing selected workshop description");
+                self.set_description(name, text);
+            }
+            Message::ShowWorkshopSetupInstructions { ref name, ref text } => {
+                info!("(ui) showing selected workshop setup instructions");
+                self.set_setup_instructions(name, text);
+            }
+            Message::ShowWorkshopSpokenLanguages {
+                ref name,
+                ref spoken_languages,
+            } => {
+                info!("(ui) showing selected workshop spoken languages");
+                self.set_spoken_languages(name, spoken_languages);
+            }
+            Message::ShowWorkshopProgrammingLanguages {
+                ref name,
+                ref programming_languages,
+            } => {
+                info!("(ui) showing selected workshop programming languages");
+                self.set_programming_languages(name, programming_languages);
+            }
+            _ => info!("(ui) ignoring message: {}", msg),
         }
         Ok(None)
     }

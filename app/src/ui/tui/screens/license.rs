@@ -114,7 +114,7 @@ impl Screen for License<'_> {
         _to_engine: Sender<Message>,
     ) -> Result<Option<UiEvent>, Error> {
         if let Message::ShowLicense { text } = msg {
-            info!("Showing license screen");
+            info!("(ui) setting license text in show license screen");
             self.set_license(text.to_string());
             return Ok(Some(UiEvent::ShowLicense));
         }

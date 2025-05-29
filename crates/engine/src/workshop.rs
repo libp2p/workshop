@@ -164,6 +164,10 @@ impl WorkshopData {
         spoken_language: Option<spoken::Code>,
     ) -> Result<String, Error> {
         let spoken_language = spoken_language.unwrap_or(self.defaults.spoken_language);
+        info!(
+            "(engine) WorkshopData::get_description: {}",
+            spoken_language
+        );
         let mut description = self
             .descriptions
             .get(&spoken_language)

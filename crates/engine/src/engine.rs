@@ -51,6 +51,7 @@ impl Engine {
             select! {
                 // Process messages from the UI
                 Some(msg) = self.from_ui.recv() => {
+                    info!("(engine) received message: {}", msg);
                     let _ = match msg {
                         Message::Config { config } => {
                             info!("(engine) Configuring engine with:");
@@ -61,6 +62,22 @@ impl Engine {
 
                             // Initialize the engine state with the given data directory and password
                             self.config(config).await
+                        },
+                        Message::GetWorkshopDescription { name } => {
+                            info!("(engine) Getting description for: {}", name);
+                            self.get_description(&name).await
+                        },
+                        Message::GetWorkshopSetupInstructions { name } => {
+                            info!("(engine) Getting setup instructions for: {}", name);
+                            self.get_setup_instructions(&name).await
+                        },
+                        Message::GetWorkshopSpokenLanguages { name } => {
+                            info!("(engine) Getting spoken languages for: {}", name);
+                            self.get_spoken_languages(&name).await
+                        },
+                        Message::GetWorkshopProgrammingLanguages { name } => {
+                            info!("(engine) Getting programming languages for: {}", name);
+                            self.get_programming_languages(&name).await
                         },
                         Message::GetLicense { name } => {
                             info!("(engine) Getting license for: {}", name);
@@ -135,7 +152,15 @@ impl Engine {
         }
     }
 
-    async fn send_message(&self) -> Result<(), Error> {
+    async fn send_message(&mut self) -> Result<(), Error> {
+        info!(
+            "(engine) send_message(), new state: {}",
+            self.state
+                .iter()
+                .map(|s| format!("[{}]", s))
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
         if let Some(state) = self.state.last() {
             match state {
                 State::Nil => {
@@ -143,24 +168,29 @@ impl Engine {
                 }
                 State::SelectWorkshop { workshops_data } => {
                     info!(
-                        "(engine) Sending select workshops to {:?}",
+                        "(engine) Sending select workshops with workshops: {:?}",
                         workshops_data.keys().collect::<Vec<_>>()
                     );
                     let mut workshops =
                         HashMap::<String, Workshop>::with_capacity(workshops_data.len());
+                    /*
                     let mut descriptions =
-                        HashMap::<String, String>::with_capacity(workshops.len());
+                        HashMap::<String, String>::with_capacity(workshops_data.len());
                     let mut setup_instructions =
-                        HashMap::<String, String>::with_capacity(workshops.len());
+                        HashMap::<String, String>::with_capacity(workshops_data.len());
                     let mut spoken_languages =
-                        HashMap::<String, Vec<spoken::Code>>::with_capacity(workshops.len());
+                        HashMap::<String, Vec<spoken::Code>>::with_capacity(workshops_data.len());
                     let mut programming_languages =
-                        HashMap::<String, Vec<programming::Code>>::with_capacity(workshops.len());
+                        HashMap::<String, Vec<programming::Code>>::with_capacity(
+                            workshops_data.len(),
+                        );
+                    */
                     for (name, workshop_data) in workshops_data.iter() {
                         workshops.insert(
                             name.clone(),
                             workshop_data.get_metadata(self.spoken_language).await?,
                         );
+                        /*
                         descriptions.insert(
                             name.clone(),
                             workshop_data.get_description(self.spoken_language).await?,
@@ -178,19 +208,80 @@ impl Engine {
                             .insert(name.clone(), workshop_data.get_all_spoken_languages());
                         programming_languages
                             .insert(name.clone(), workshop_data.get_all_programming_languages());
+                        */
                     }
                     self.to_ui
                         .send(Message::SelectWorkshop {
                             workshops,
+                            /*
                             descriptions,
                             setup_instructions,
                             spoken_languages,
                             programming_languages,
+                            */
                             spoken_language: self.spoken_language,
                             programming_language: self.programming_language,
                         })
                         .await
                         .map_err(|_| Error::UiChannelClosed)?;
+                }
+                State::ShowDescription { ref name, ref text } => {
+                    info!("(engine) Sending show description message");
+                    self.to_ui
+                        .send(Message::ShowWorkshopDescription {
+                            name: name.to_string(),
+                            text: text.to_string(),
+                        })
+                        .await
+                        .map_err(|_| Error::UiChannelClosed)?;
+
+                    // remove the ShowDescription state, go back to SelectWorkshop
+                    self.state.pop();
+                }
+                State::ShowSetupInstructions { ref name, ref text } => {
+                    info!("(engine) Sending show setup instructions message");
+                    self.to_ui
+                        .send(Message::ShowWorkshopSetupInstructions {
+                            name: name.to_string(),
+                            text: text.to_string(),
+                        })
+                        .await
+                        .map_err(|_| Error::UiChannelClosed)?;
+
+                    // remove the ShowSetupInstructions state, go back to SelectWorkshop
+                    self.state.pop();
+                }
+                State::ShowSpokenLanguages {
+                    ref name,
+                    ref spoken_languages,
+                } => {
+                    info!("(engine) Sending show spoken languages message");
+                    self.to_ui
+                        .send(Message::ShowWorkshopSpokenLanguages {
+                            name: name.to_string(),
+                            spoken_languages: spoken_languages.to_vec(),
+                        })
+                        .await
+                        .map_err(|_| Error::UiChannelClosed)?;
+
+                    // remove the ShowSpokenLanguages state, go back to SelectWorkshop
+                    self.state.pop();
+                }
+                State::ShowProgrammingLanguages {
+                    ref name,
+                    ref programming_languages,
+                } => {
+                    info!("(engine) Sending show programming languages message");
+                    self.to_ui
+                        .send(Message::ShowWorkshopProgrammingLanguages {
+                            name: name.to_string(),
+                            programming_languages: programming_languages.to_vec(),
+                        })
+                        .await
+                        .map_err(|_| Error::UiChannelClosed)?;
+
+                    // remove the ShowProgrammingLanguages state, go back to SelectWorkshop
+                    self.state.pop();
                 }
                 State::ShowLicense { license_text } => {
                     info!("(engine) Sending show license message");
@@ -331,6 +422,100 @@ impl Engine {
             Err(Error::InvalidStateChange(
                 self.state.last().unwrap().to_string(),
                 "config".to_string(),
+            ))
+        }
+    }
+
+    /// Get the description text
+    async fn get_description(&mut self, name: &str) -> Result<(), Error> {
+        // invariant: the engine is in SelectWorkshop State
+        if let Some(State::SelectWorkshop { workshops_data }) = self.state.last() {
+            let workshop_data = workshops_data
+                .get(name)
+                .ok_or_else(|| Error::WorkshopNotFound(name.to_string()))?;
+            // get the description text
+            let text = workshop_data.get_description(self.spoken_language).await?;
+            // SelectWorkshop -> ShowDescription
+            self.state.push(State::ShowDescription {
+                name: name.to_string(),
+                text,
+            });
+            Ok(())
+        } else {
+            Err(Error::InvalidStateChange(
+                self.state.last().unwrap().to_string(),
+                "get_license".to_string(),
+            ))
+        }
+    }
+
+    /// Get the setup instructions
+    async fn get_setup_instructions(&mut self, name: &str) -> Result<(), Error> {
+        // invariant: the engine is in SelectWorkshop State
+        if let Some(State::SelectWorkshop { workshops_data }) = self.state.last() {
+            let workshop_data = workshops_data
+                .get(name)
+                .ok_or_else(|| Error::WorkshopNotFound(name.to_string()))?;
+            // get the setup instructions text
+            let text = workshop_data
+                .get_setup_instructions(self.spoken_language, self.programming_language)
+                .await?;
+            // SelectWorkshop -> ShowSetupInstructions
+            self.state.push(State::ShowSetupInstructions {
+                name: name.to_string(),
+                text,
+            });
+            Ok(())
+        } else {
+            Err(Error::InvalidStateChange(
+                self.state.last().unwrap().to_string(),
+                "get_license".to_string(),
+            ))
+        }
+    }
+
+    /// Get the spoken languages
+    async fn get_spoken_languages(&mut self, name: &str) -> Result<(), Error> {
+        // invariant: the engine is in SelectWorkshop State
+        if let Some(State::SelectWorkshop { workshops_data }) = self.state.last() {
+            let workshop_data = workshops_data
+                .get(name)
+                .ok_or_else(|| Error::WorkshopNotFound(name.to_string()))?;
+            // get the spoken languages
+            let spoken_languages = workshop_data.get_all_spoken_languages();
+            // SelectWorkshop -> ShowSpokenLanguages
+            self.state.push(State::ShowSpokenLanguages {
+                name: name.to_string(),
+                spoken_languages,
+            });
+            Ok(())
+        } else {
+            Err(Error::InvalidStateChange(
+                self.state.last().unwrap().to_string(),
+                "get_license".to_string(),
+            ))
+        }
+    }
+
+    /// Get the programming languages
+    async fn get_programming_languages(&mut self, name: &str) -> Result<(), Error> {
+        // invariant: the engine is in SelectWorkshop State
+        if let Some(State::SelectWorkshop { workshops_data }) = self.state.last() {
+            let workshop_data = workshops_data
+                .get(name)
+                .ok_or_else(|| Error::WorkshopNotFound(name.to_string()))?;
+            // get the programming languages
+            let programming_languages = workshop_data.get_all_programming_languages();
+            // SelectWorkshop -> ShowProgrammingLanguages
+            self.state.push(State::ShowProgrammingLanguages {
+                name: name.to_string(),
+                programming_languages,
+            });
+            Ok(())
+        } else {
+            Err(Error::InvalidStateChange(
+                self.state.last().unwrap().to_string(),
+                "get_license".to_string(),
             ))
         }
     }

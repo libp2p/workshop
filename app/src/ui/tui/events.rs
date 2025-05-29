@@ -8,11 +8,13 @@ pub enum Event {
     /// quit the application
     Quit,
     /// show the workshop selection screen
-    SelectWorkshop,
+    SelectWorkshop(String),
     /// set the workshop
     SetWorkshop(String),
     /// show the log popup
     ToggleLog,
+    /// Get the license
+    GetLicense(String),
     /// show the license popup
     ShowLicense,
     /// launch the browser with the given url

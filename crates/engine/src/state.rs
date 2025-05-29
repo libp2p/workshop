@@ -77,6 +77,20 @@ pub enum State {
     SelectWorkshop {
         workshops_data: HashMap<String, WorkshopData>,
     },
+    /// show the description text
+    ShowDescription { name: String, text: String },
+    /// Show the setup instructions
+    ShowSetupInstructions { name: String, text: String },
+    /// Show the spoken languages
+    ShowSpokenLanguages {
+        name: String,
+        spoken_languages: Vec<spoken::Code>,
+    },
+    /// Show the programming languages
+    ShowProgrammingLanguages {
+        name: String,
+        programming_languages: Vec<programming::Code>,
+    },
     /// send the license text
     ShowLicense { license_text: String },
     /// select the spoken language
@@ -114,6 +128,10 @@ impl std::fmt::Display for State {
         match self {
             State::Nil => write!(f, "Nil"),
             State::SelectWorkshop { .. } => write!(f, "SelectWorkshop"),
+            State::ShowDescription { .. } => write!(f, "ShowDescription"),
+            State::ShowSetupInstructions { .. } => write!(f, "ShowSetupInstructions"),
+            State::ShowSpokenLanguages { .. } => write!(f, "ShowSpokenLanguages"),
+            State::ShowProgrammingLanguages { .. } => write!(f, "ShowProgrammingLanguages"),
             State::ShowLicense { .. } => write!(f, "License"),
             State::SelectSpokenLanguage { .. } => write!(f, "SelectSpokenLanguage"),
             State::SetSpokenLanguageDefault { .. } => write!(f, "SetSpokenLanguageDefault"),

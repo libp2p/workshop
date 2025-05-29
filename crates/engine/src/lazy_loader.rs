@@ -31,20 +31,27 @@ where
             LazyLoader::NotLoaded(path) => {
                 // Clone the path before borrowing self
                 let path_clone = path.clone();
+                info!(
+                    "(lazy loader) attempting to load from path: {}",
+                    path_clone.display()
+                );
                 // Attempt to load the data using the TryLoad trait
                 let loaded = T::try_load(&path_clone).await?;
                 // Transition to Loaded state
                 *self = LazyLoader::Loaded(loaded);
                 // Return a reference to the loaded data
                 if let LazyLoader::Loaded(data) = self {
-                    info!("Lazy loader loaded data from path: {}", path_clone.display());
+                    info!(
+                        "(lazy loader) loaded data from path: {}",
+                        path_clone.display()
+                    );
                     Ok(data)
                 } else {
                     unreachable!("Just set to Loaded, this should not happen")
                 }
             }
             LazyLoader::Loaded(data) => {
-                info!("Returning cached value from lazy loader");
+                info!("(lazy loader) returning cached value from lazy loader");
                 // If already loaded, return a reference to the data
                 Ok(data)
             }
