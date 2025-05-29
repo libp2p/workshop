@@ -1,13 +1,12 @@
 use crate::{
     workshop::{self, WorkshopData},
-    Error, Lesson,
+    Error,
 };
 use languages::{programming, spoken};
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
 };
-use tracing::info;
 
 /// The Filesystem wrapper
 #[derive(Clone, Debug, Default)]
@@ -16,16 +15,8 @@ pub struct Fs {
     pub data_dir: PathBuf,
     /// The present working directory
     pub pwd: PathBuf,
-    /// The local workshops directory
+    // The local workshops directory
     //pub workshops_dir: Option<PathBuf>,
-    /// The selected workshop
-    pub workshop: Option<String>,
-    /// The selected lesson
-    pub lesson: Option<String>,
-    /// The selected spoken language
-    pub spoken_language: Option<spoken::Code>,
-    /// The selected programming language
-    pub programming_language: Option<programming::Code>,
 }
 
 impl Fs {
@@ -45,42 +36,6 @@ impl Fs {
         self.workshops_dir = Some(workshops_dir);
     }
     */
-
-    /// Sets the selected spoken language
-    pub fn set_spoken_language(&mut self, spoken_language: Option<spoken::Code>) {
-        self.spoken_language = spoken_language;
-    }
-
-    /// Gets the selected spoken language
-    pub fn get_spoken_language(&self) -> Option<spoken::Code> {
-        self.spoken_language
-    }
-
-    /// Sets the selected programming language
-    pub fn set_programming_language(&mut self, programming_language: Option<programming::Code>) {
-        self.programming_language = programming_language;
-    }
-
-    /// Gets the selected programming language
-    pub fn get_programming_language(&self) -> Option<programming::Code> {
-        self.programming_language
-    }
-
-    /// Set the selected workshop
-    pub fn set_workshop(&mut self, workshop: Option<String>) {
-        self.workshop = workshop;
-    }
-
-    /// Set the selected lesson
-    pub fn set_lesson(&mut self, lesson: Option<String>) {
-        self.lesson = lesson;
-    }
-
-    /// Get the license text for a workshop
-    pub async fn get_license(&self, name: &str) -> Result<String, Error> {
-        let workshop = self.get_workshop_data(name)?;
-        workshop.get_license().await
-    }
 
     /*
     /// utility function searches for the ".workshops" directory
@@ -135,88 +90,12 @@ impl Fs {
                             .path(&self.data_dir)
                             .try_load()
                             .ok()?;
-                        if !self.is_workshop_data_filtered(&workshop_data) {
-                            Some((name.clone(), workshop_data))
-                        } else {
-                            None
-                        }
+                        Some((name.clone(), workshop_data))
                     } else {
                         None
                     }
                 })
             })
             .collect())
-    }
-
-    /// Get all workshops that support the given spoken and programming languages
-    pub(crate) fn get_workshops_data_filtered(
-        &self,
-    ) -> Result<HashMap<String, WorkshopData>, Error> {
-        Ok(std::fs::read_dir(&self.data_dir)
-            .map_err(|_| Error::WorkshopDataDirNotFound)?
-            .filter_map(|entry| {
-                entry.ok().and_then(|e| {
-                    let name = e.file_name().to_string_lossy().to_string();
-                    if e.path().is_dir() {
-                        let workshop_data = workshop::Loader::new(&name)
-                            .path(&self.data_dir)
-                            .try_load()
-                            .ok()?;
-                        if !self.is_workshop_data_filtered(&workshop_data) {
-                            Some((name.clone(), workshop_data))
-                        } else {
-                            None
-                        }
-                    } else {
-                        None
-                    }
-                })
-            })
-            .collect())
-    }
-
-    /// Get a workshop by name, iff it supports the given spoken and programming languages
-    fn is_workshop_data_filtered(&self, workshop_data: &WorkshopData) -> bool {
-        let name = workshop_data.get_name();
-        info!("(engine) get_workshop_data_filtered: {}", name);
-        if let Some(spoken) = self.spoken_language {
-            info!("(engine) - spoken: {}", spoken.get_name_in_english());
-            if !workshop_data.get_all_spoken_languages().contains(&spoken) {
-                info!("(engine)   - not a supported spoken language");
-                return false;
-            }
-            info!("(engine)   - a supported spoken language");
-            if let Some(programming) = self.programming_language {
-                info!("(engine) - programming: {}", programming.get_name());
-                if !workshop_data
-                    .get_programming_languages_for_spoken_language(spoken)
-                    .contains(&programming)
-                {
-                    info!("(engine)   - not a supported programming language");
-                    return false;
-                }
-                info!("(engine)   - a supported programming language");
-            } else {
-                info!("(engine) - programming: Any");
-            }
-        } else {
-            info!("(engine) - spoken: Any");
-            if let Some(programming) = self.programming_language {
-                info!("(engine) - programming: {}", programming.get_name());
-                if !workshop_data
-                    .get_all_programming_languages()
-                    .contains(&programming)
-                {
-                    info!("(engine)   - not a supported programming language");
-                    return false;
-                }
-                info!("(engine)   - a supported programming language");
-            }
-        }
-        true
-    }
-
-    pub fn get_lessons_data_filtered(&self, _name: &str) -> Result<Vec<Lesson>, Error> {
-        Ok(Vec::new())
     }
 }

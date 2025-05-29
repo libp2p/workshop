@@ -4,6 +4,7 @@ use crate::{
 };
 use crossterm::event::{Event, KeyCode};
 use engine::{Lesson, Message};
+use languages::{programming, spoken};
 use ratatui::{
     buffer::Buffer,
     layout::{Alignment, Constraint, Flex, Layout, Rect},
@@ -23,8 +24,10 @@ enum FocusedView {
 
 #[derive(Clone, Debug, Default)]
 pub struct Lessons<'a> {
-    /// the list of lessons
+    /// the lesson data
     lessons: HashMap<String, Lesson>,
+    /// the lesson texts
+    lesson_texts: HashMap<String, String>,
     /// the cached list
     titles: List<'a>,
     /// the list state of lesson title
@@ -33,12 +36,25 @@ pub struct Lessons<'a> {
     st: ScrollText<'a>,
     /// currently focused view
     focused: FocusedView,
+    /// the currently selected spoken language
+    spoken_language: Option<spoken::Code>,
+    /// the currently selected programming language
+    programming_language: Option<programming::Code>,
 }
 
 impl Lessons<'_> {
     /// set the lessons
-    fn set_lessons(&mut self, lessons: &HashMap<String, Lesson>) {
+    fn set_lessons(
+        &mut self,
+        lessons: &HashMap<String, Lesson>,
+        lesson_texts: &HashMap<String, String>,
+        spoken_language: Option<spoken::Code>,
+        programming_language: Option<programming::Code>,
+    ) {
         self.lessons = lessons.clone();
+        self.lesson_texts = lesson_texts.clone();
+        self.spoken_language = spoken_language;
+        self.programming_language = programming_language;
 
         if self.lessons.is_empty() {
             self.titles_state.select(None);
@@ -182,6 +198,16 @@ impl Lessons<'_> {
                 1.0 / last_frame_duration.as_secs_f64()
             ));
 
+        let spoken = match self.spoken_language {
+            Some(code) => code.get_name_in_english().to_string(),
+            None => "All".to_string(),
+        };
+
+        let programming = match self.programming_language {
+            Some(code) => code.get_name().to_string(),
+            None => "All".to_string(),
+        };
+
         let fps = Paragraph::new(format!("[ {} | {} ]", spoken, programming))
             .block(block)
             .style(Style::default().fg(Color::Black).bg(Color::White))
@@ -244,9 +270,20 @@ impl Screen for Lessons<'_> {
         msg: Message,
         _to_engine: Sender<Message>,
     ) -> Result<Option<UiEvent>, Error> {
-        if let Message::SelectLesson { lessons } = msg {
+        if let Message::SelectLesson {
+            lessons,
+            lesson_texts,
+            spoken_language,
+            programming_language,
+        } = msg
+        {
             info!("Showing select lesson screen");
-            self.set_lessons(&lessons);
+            self.set_lessons(
+                &lessons,
+                &lesson_texts,
+                spoken_language,
+                programming_language,
+            );
             return Ok(Some(UiEvent::SelectLesson));
         }
         Ok(None)

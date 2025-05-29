@@ -62,22 +62,22 @@ pub(crate) struct LessonData {
 
 impl LessonData {
     /// returns the name of the lesson
-    pub fn name(&self) -> &str {
+    pub fn get_name(&self) -> &str {
         &self.name
     }
 
     /// returns the path to the lesson data directory
-    pub fn path(&self) -> &Path {
+    pub fn get_path(&self) -> &Path {
         &self.path
     }
 
     /// returns the spoken language of the lesson
-    pub fn spoken_language(&self) -> spoken::Code {
+    pub fn get_spoken_language(&self) -> spoken::Code {
         self.spoken_language
     }
 
     /// returns the programming language of the lesson
-    pub fn programming_language(&self) -> programming::Code {
+    pub fn get_programming_language(&self) -> programming::Code {
         self.programming_language
     }
 
@@ -176,10 +176,9 @@ impl Loader {
 
     fn try_load_lesson_text(&self, lesson_dir: &Path) -> Result<LessonText, Error> {
         let lesson_text_path = lesson_dir.join("lesson.md");
-        lesson_text_path
-            .exists()
-            .then_some(())
-            .ok_or(Error::LessonTextFileMissing);
+        if !lesson_text_path.exists() {
+            return Err(Error::LessonTextFileMissing);
+        }
         Ok(Arc::new(RwLock::new(LazyLoader::NotLoaded(
             lesson_text_path,
         ))))
@@ -187,10 +186,9 @@ impl Loader {
 
     fn try_load_metadata(&self, lesson_dir: &Path) -> Result<Metadata, Error> {
         let metadata_path = lesson_dir.join("lesson.yaml");
-        metadata_path
-            .exists()
-            .then_some(())
-            .ok_or(Error::LessonMetadataFileMissing);
+        if !metadata_path.exists() {
+            return Err(Error::LessonMetadataFileMissing);
+        }
         Ok(Arc::new(RwLock::new(LazyLoader::NotLoaded(metadata_path))))
     }
 
@@ -202,11 +200,9 @@ impl Loader {
             .ok_or(Error::LessonDataDirNotFound)?;
         let spoken_language = self
             .spoken_language
-            .clone()
             .ok_or(Error::NoSpokenLanguageSpecified)?;
         let programming_language = self
             .programming_language
-            .clone()
             .ok_or(Error::NoProgrammingLanguageSpecified)?;
         let lesson_text = self.try_load_lesson_text(&path)?;
         let metadata = self.try_load_metadata(&path)?;

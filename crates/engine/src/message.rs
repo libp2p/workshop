@@ -18,6 +18,10 @@ pub enum Message {
         descriptions: HashMap<String, String>,
         /// the setup instructions for the supported workshops
         setup_instructions: HashMap<String, String>,
+        /// all of the spoken languages the workshop has been translated to
+        spoken_languages: HashMap<String, Vec<spoken::Code>>,
+        /// all of the programming languages the workshop has been ported to
+        programming_languages: HashMap<String, Vec<programming::Code>>,
         /// the current selected spoken language
         spoken_language: Option<spoken::Code>,
         /// the current selected programming language
@@ -32,6 +36,12 @@ pub enum Message {
     SelectLesson {
         /// lessons in the selected workshop
         lessons: HashMap<String, Lesson>,
+        /// lesson texts
+        lesson_texts: HashMap<String, String>,
+        /// the current selected spoken language
+        spoken_language: Option<spoken::Code>,
+        /// the current selected programming language
+        programming_language: Option<programming::Code>,
     },
     /// Set the lesson  UI --> Engine
     SetLesson {

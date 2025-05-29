@@ -26,6 +26,9 @@ pub enum Error {
     #[error("Workshop spoken language not found: {0}")]
     WorkshopSpokenLanguageNotFound(String),
 
+    #[error("Workshop data directory for programming language {0} not found")]
+    WorkshopDataProgrammingDirNotFound(String),
+
     #[error("Workshop programming language not found: {0}")]
     WorkshopProgrammingLanguageNotFound(String),
 

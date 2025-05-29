@@ -7,6 +7,7 @@ use std::{
     sync::Arc,
 };
 use tokio::sync::RwLock;
+use tracing::info;
 
 /// Represents a workshop's metadata
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -48,8 +49,8 @@ pub(crate) type SetupInstructionsMap =
 pub(crate) type DescriptionsMap = HashMap<spoken::Code, Arc<RwLock<LazyLoader<String>>>>;
 pub(crate) type LicenseLoader = Arc<RwLock<LazyLoader<String>>>;
 pub(crate) type MetadataMap = HashMap<spoken::Code, Arc<RwLock<LazyLoader<Workshop>>>>;
-pub(crate) type LessonsMap =
-    HashMap<spoken::Code, HashMap<programming::Code, Arc<RwLock<LazyLoader<LessonData>>>>>;
+pub(crate) type LessonsDataMap =
+    HashMap<spoken::Code, HashMap<programming::Code, Vec<Arc<RwLock<LazyLoader<LessonData>>>>>>;
 
 #[derive(Clone, Debug)]
 pub(crate) struct WorkshopData {
@@ -60,15 +61,15 @@ pub(crate) struct WorkshopData {
     setup_instructions: SetupInstructionsMap,
     license: LicenseLoader,
     metadata: MetadataMap,
-    lessons: LessonsMap,
+    lessons_data: LessonsDataMap,
     spoken_languages: Vec<spoken::Code>,
     programming_languages: Vec<programming::Code>,
 }
 
 impl WorkshopData {
     /// returns the workshop name
-    pub fn get_name(&self) -> String {
-        self.name.clone()
+    pub fn get_name(&self) -> &str {
+        &self.name
     }
 
     /// returns the path to the workshop root directory
@@ -107,12 +108,54 @@ impl WorkshopData {
             .iter()
             .filter_map(|(lang, langs)| {
                 if langs.contains_key(&programming_language) {
-                    Some(lang.clone())
+                    Some(*lang)
                 } else {
                     None
                 }
             })
             .collect::<Vec<_>>())
+    }
+
+    /// test if this workshop is selected with the given spoken and programming language
+    pub fn is_selected(
+        &self,
+        spoken_language: Option<spoken::Code>,
+        programming_language: Option<programming::Code>,
+    ) -> bool {
+        let name = self.get_name();
+        info!("(engine) WorkshopData::is_selected: {}", name);
+        if let Some(spoken) = spoken_language {
+            info!("(engine) - spoken: {}", spoken.get_name_in_english());
+            if !self.get_all_spoken_languages().contains(&spoken) {
+                info!("(engine)   - not a supported spoken language");
+                return false;
+            }
+            info!("(engine)   - a supported spoken language");
+            if let Some(programming) = programming_language {
+                info!("(engine) - programming: {}", programming.get_name());
+                if !self
+                    .get_programming_languages_for_spoken_language(spoken)
+                    .contains(&programming)
+                {
+                    info!("(engine)   - not a supported programming language");
+                    return false;
+                }
+                info!("(engine)   - a supported programming language");
+            } else {
+                info!("(engine) - programming: Any");
+            }
+        } else {
+            info!("(engine) - spoken: Any");
+            if let Some(programming) = programming_language {
+                info!("(engine) - programming: {}", programming.get_name());
+                if !self.get_all_programming_languages().contains(&programming) {
+                    info!("(engine)   - not a supported programming language");
+                    return false;
+                }
+                info!("(engine)   - a supported programming language");
+            }
+        }
+        true
     }
 
     /// returns the description for the workshop in the given spoken language
@@ -183,17 +226,17 @@ impl WorkshopData {
         metadata.try_load().await.cloned()
     }
 
-    /// returns the lesson data for a given spoken and programming language
-    pub async fn get_lesson_data(
+    /// returns the list of LessonData structs for the given spoken and programming language
+    pub async fn get_lessons_data(
         &self,
         spoken_language: Option<spoken::Code>,
         programming_language: Option<programming::Code>,
-    ) -> Result<LessonData, Error> {
+    ) -> Result<HashMap<String, LessonData>, Error> {
         let spoken_language = spoken_language.unwrap_or(self.defaults.spoken_language);
         let programming_language =
             programming_language.unwrap_or(self.defaults.programming_language);
-        let mut setup = self
-            .setup_instructions
+        let lessons = self
+            .lessons_data
             .get(&spoken_language)
             .ok_or(Error::WorkshopSpokenLanguageNotFound(
                 spoken_language.get_name_in_english().to_string(),
@@ -201,11 +244,13 @@ impl WorkshopData {
             .get(&programming_language)
             .ok_or(Error::WorkshopProgrammingLanguageNotFound(
                 programming_language.get_name().to_string(),
-            ))?
-            .write() // get a write lock on the Arc<RwLock<LazyLoader<String>>>
-            .await;
-        // try to load the setup instructions, if it fails, return the error
-        setup.try_load().await.cloned()
+            ))?;
+        let mut lessons_data: HashMap<String, LessonData> = HashMap::new();
+        for lesson in lessons.iter() {
+            let lesson_data = lesson.write().await.try_load().await.cloned()?;
+            lessons_data.insert(lesson_data.get_name().to_string(), lesson_data);
+        }
+        Ok(lessons_data)
     }
 }
 
@@ -335,6 +380,61 @@ impl Loader {
         Ok(metadata)
     }
 
+    fn try_load_lessons_data(
+        &self,
+        workshop_dir: &Path,
+        spoken_languages: &Vec<spoken::Code>,
+    ) -> Result<LessonsDataMap, Error> {
+        let mut lessons_data: LessonsDataMap = LessonsDataMap::new();
+
+        for spoken in spoken_languages {
+            let programming_languages: HashMap<
+                programming::Code,
+                Vec<Arc<RwLock<LazyLoader<LessonData>>>>,
+            > = std::fs::read_dir(workshop_dir.join(spoken.to_string()))
+                .map_err(|_| {
+                    Error::WorkshopDataSpokenDirNotFound(spoken.get_name_in_english().to_string())
+                })?
+                .filter_map(|entry| {
+                    if let Ok(e) = entry {
+                        let name = e.file_name().to_string_lossy().to_string();
+                        if let Ok(code) = programming::Code::try_from(name.as_str()) {
+                            // create a Vec of lazy loaders for each lesson
+                            let lessons_data: Vec<Arc<RwLock<LazyLoader<LessonData>>>> =
+                                std::fs::read_dir(e.path())
+                                    .map_err(|_| {
+                                        Error::WorkshopDataProgrammingDirNotFound(
+                                            code.get_name().to_string(),
+                                        )
+                                    })
+                                    .ok()?
+                                    .filter_map(|entry| {
+                                        if let Ok(e) = entry {
+                                            if e.path().is_dir() {
+                                                return Some(Arc::new(RwLock::new(
+                                                    LazyLoader::NotLoaded(e.path()),
+                                                )));
+                                            }
+                                        }
+                                        None
+                                    })
+                                    .collect();
+                            Some((code, lessons_data))
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+
+            lessons_data.insert(*spoken, programming_languages);
+        }
+
+        Ok(lessons_data)
+    }
+
     pub(crate) fn try_load(&self) -> Result<WorkshopData, Error> {
         let name = self.name.clone();
         let path = self.path.clone().ok_or(Error::WorkshopDataDirNotFound)?;
@@ -342,7 +442,7 @@ impl Loader {
         workshop_path
             .exists()
             .then_some(())
-            .ok_or(Error::WorkshopNotFound(name))?;
+            .ok_or(Error::WorkshopNotFound(name.clone()))?;
 
         let defaults = self.try_load_defaults(&workshop_path)?;
         let descriptions = self.try_load_descriptions(&workshop_path)?;
@@ -358,6 +458,7 @@ impl Loader {
         programming_languages.dedup();
         let license = self.try_load_license(&workshop_path)?;
         let metadata = self.try_load_metadata(&workshop_path)?;
+        let lessons_data = self.try_load_lessons_data(&workshop_path, &spoken_languages)?;
 
         Ok(WorkshopData {
             name,
@@ -367,6 +468,7 @@ impl Loader {
             setup_instructions,
             license,
             metadata,
+            lessons_data,
             spoken_languages,
             programming_languages,
         })

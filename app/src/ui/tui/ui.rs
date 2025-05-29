@@ -57,7 +57,6 @@ impl Ui {
         // Create screens hashmap
         ui.screens
             .insert(Screens::Workshops, Box::new(screens::Workshops::default()));
-        // TODO: pull max_log from config
         ui.screens.insert(
             Screens::Log,
             Box::new(screens::Log::new(config.max_log_lines())),
@@ -78,6 +77,8 @@ impl Ui {
             Screens::ProgrammingSetDefault,
             Box::new(screens::SetDefault::new("Save as default?")),
         );
+        ui.screens
+            .insert(Screens::Lessons, Box::new(screens::Lessons::default()));
         ui
     }
 
@@ -225,10 +226,8 @@ impl Ui {
             }
             UiEvent::SelectWorkshop => {
                 info!("showing workshop selection screen");
-                if self.screen.last() != Some(&Screens::Spoken) {
-                    // show the workshop selection screen
-                    self.screen.push(Screens::Workshops);
-                }
+                // show the workshop selection screen
+                self.screen.push(Screens::Workshops);
             }
             UiEvent::SetWorkshop(ref workshop) => {
                 info!("workshop selected: {}", workshop);
@@ -305,6 +304,14 @@ impl Ui {
                 self.screen.pop();
                 self.to_engine.send(Message::Back).await?;
             }
+            UiEvent::SelectLesson => {
+                info!("showing lesson selection screen");
+                // show the workshop selection screen
+                self.screen.push(Screens::Workshops);
+            }
+            UiEvent::SetLesson(ref lesson) => {
+                info!("lesson selected: {}", lesson);
+            }
         }
         Ok(true)
     }
@@ -349,22 +356,6 @@ impl Screen for Ui {
                 return screen.handle_message(msg, to_engine).await;
             }
         }
-
-        /*
-        if self.screen.is_empty() {
-            // the engine might need to ask the user for their spoken and/or programming languages
-            // before we have any other screen set up. so if screen is empty and we get either of
-            // these messages we need to show the correct screen before processing the message
-            // below so that the screen will get the message.
-            match msg {
-                Message::SelectWorkshop { .. } => {
-                    // show the workshop selection screen before the message is processed
-                    self.screen.push(Screens::Workshops);
-                }
-                _ => {}
-            }
-        }
-        */
 
         // pass the message to the current screen
         if let Some(screen_type) = self.screen.last() {

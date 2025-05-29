@@ -1,5 +1,4 @@
-use crate::{Config, Error, Fs, Message, State, Workshop};
-use futures::stream::StreamExt;
+use crate::{Config, Error, Fs, Lesson, Message, State, Workshop};
 use languages::{programming, spoken};
 use std::collections::HashMap;
 use tokio::{
@@ -19,6 +18,14 @@ pub struct Engine {
     fs: Fs,
     /// The engine state
     state: Vec<State>,
+    /// The selected workshop
+    workshop: Option<String>,
+    /// The selected lesson
+    lesson: Option<String>,
+    /// The selected spoken language
+    spoken_language: Option<spoken::Code>,
+    /// The selected programming language
+    programming_language: Option<programming::Code>,
 }
 
 impl Engine {
@@ -31,6 +38,10 @@ impl Engine {
             to_ui,
             fs: Fs::default(),
             state: vec![State::Nil],
+            workshop: None,
+            lesson: None,
+            spoken_language: None,
+            programming_language: None,
         })
     }
 
@@ -130,7 +141,7 @@ impl Engine {
                 State::Nil => {
                     info!("(engine) Tried sending message when in Nil");
                 }
-                State::SelectWorkshop(workshops_data) => {
+                State::SelectWorkshop { workshops_data } => {
                     info!(
                         "(engine) Sending select workshops to {:?}",
                         workshops_data.keys().collect::<Vec<_>>()
@@ -141,42 +152,51 @@ impl Engine {
                         HashMap::<String, String>::with_capacity(workshops.len());
                     let mut setup_instructions =
                         HashMap::<String, String>::with_capacity(workshops.len());
-                    let spoken_language = self.fs.get_spoken_language();
-                    futures::stream::iter(workshops_data.iter())
-                        .try_for_each(|(name, workshop)| async move {
-                            workshops.insert(
-                                name.clone(),
-                                workshop.get_metadata(spoken_language.clone()).await?,
-                            );
-                            descriptions.insert(
-                                name.clone(),
-                                workshop.get_description(spoken_language.clone()).await?,
-                            );
-                            setup_instructions.insert(
-                                name.clone(),
-                                workshop
-                                    .get_setup_instructions(spoken_language.clone())
-                                    .await?,
-                            );
-                            Ok(())
-                        })
-                        .collect::<Result<(), Error>>()?;
+                    let mut spoken_languages =
+                        HashMap::<String, Vec<spoken::Code>>::with_capacity(workshops.len());
+                    let mut programming_languages =
+                        HashMap::<String, Vec<programming::Code>>::with_capacity(workshops.len());
+                    for (name, workshop_data) in workshops_data.iter() {
+                        workshops.insert(
+                            name.clone(),
+                            workshop_data.get_metadata(self.spoken_language).await?,
+                        );
+                        descriptions.insert(
+                            name.clone(),
+                            workshop_data.get_description(self.spoken_language).await?,
+                        );
+                        setup_instructions.insert(
+                            name.clone(),
+                            workshop_data
+                                .get_setup_instructions(
+                                    self.spoken_language,
+                                    self.programming_language,
+                                )
+                                .await?,
+                        );
+                        spoken_languages
+                            .insert(name.clone(), workshop_data.get_all_spoken_languages());
+                        programming_languages
+                            .insert(name.clone(), workshop_data.get_all_programming_languages());
+                    }
                     self.to_ui
                         .send(Message::SelectWorkshop {
                             workshops,
                             descriptions,
                             setup_instructions,
-                            spoken_language: self.fs.get_spoken_language(),
-                            programming_language: self.fs.get_programming_language(),
+                            spoken_languages,
+                            programming_languages,
+                            spoken_language: self.spoken_language,
+                            programming_language: self.programming_language,
                         })
                         .await
                         .map_err(|_| Error::UiChannelClosed)?;
                 }
-                State::SelectLesson(lessons) => {
-                    info!("(engine) Sending select lessons message {:?}", lessons);
+                State::ShowLicense { license_text } => {
+                    info!("(engine) Sending show license message");
                     self.to_ui
-                        .send(Message::SelectLesson {
-                            lessons: lessons.to_vec(),
+                        .send(Message::ShowLicense {
+                            text: license_text.clone(),
                         })
                         .await
                         .map_err(|_| Error::UiChannelClosed)?;
@@ -189,7 +209,7 @@ impl Engine {
                     self.to_ui
                         .send(Message::SelectSpokenLanguage {
                             spoken_languages: spoken_languages.to_vec(),
-                            spoken_language: self.fs.get_spoken_language(),
+                            spoken_language: self.spoken_language,
                         })
                         .await
                         .map_err(|_| Error::UiChannelClosed)?;
@@ -216,7 +236,7 @@ impl Engine {
                     self.to_ui
                         .send(Message::SelectProgrammingLanguage {
                             programming_languages: programming_languages.to_vec(),
-                            programming_language: self.fs.get_programming_language(),
+                            programming_language: self.programming_language,
                         })
                         .await
                         .map_err(|_| Error::UiChannelClosed)?;
@@ -235,14 +255,36 @@ impl Engine {
                         .await
                         .map_err(|_| Error::UiChannelClosed)?;
                 }
-                State::ShowLicense(license) => {
-                    info!("(engine) Sending show license message");
+                State::SelectLesson { lessons_data } => {
+                    info!(
+                        "(engine) Sending select lessons to {:?}",
+                        lessons_data.keys().collect::<Vec<_>>()
+                    );
+                    let mut lessons = HashMap::<String, Lesson>::with_capacity(lessons_data.len());
+                    let mut lesson_texts =
+                        HashMap::<String, String>::with_capacity(lessons_data.len());
+                    for (name, lesson_data) in lessons_data.iter() {
+                        lessons.insert(name.clone(), lesson_data.get_metadata().await?);
+                        lesson_texts.insert(name.clone(), lesson_data.get_lesson_text().await?);
+                    }
                     self.to_ui
-                        .send(Message::ShowLicense {
-                            text: license.clone(),
+                        .send(Message::SelectLesson {
+                            lessons,
+                            lesson_texts,
+                            spoken_language: self.spoken_language,
+                            programming_language: self.programming_language,
                         })
                         .await
                         .map_err(|_| Error::UiChannelClosed)?;
+                }
+                State::CheckLesson => {
+                    info!("(engine) CheckLesson");
+                }
+                State::LessonComplete => {
+                    info!("(engine) LessonComplete");
+                }
+                State::LessonIncomplete => {
+                    info!("(engine) LessonIncomplete");
                 }
                 State::Error(err) => {
                     info!("(engine) Sending error message to UI: {}", err);
@@ -272,13 +314,18 @@ impl Engine {
             // initialize the filesystem abstraction
             self.fs.set_data_dir(config.data_dir());
             self.fs.set_pwd(config.pwd());
-            self.fs.set_spoken_language(config.spoken_language());
-            self.fs
-                .set_programming_language(config.programming_language());
-
+            self.spoken_language = config.spoken_language();
+            self.programming_language = config.programming_language();
             // Nil -> SelectWorkshop
-            let workshops = self.fs.get_workshops_data_filtered()?;
-            self.state.push(State::SelectWorkshop(workshops));
+            let workshops_data = self
+                .fs
+                .get_workshops_data()?
+                .into_iter()
+                .filter(|(_, workshop_data)| {
+                    workshop_data.is_selected(self.spoken_language, self.programming_language)
+                })
+                .collect::<HashMap<_, _>>();
+            self.state.push(State::SelectWorkshop { workshops_data });
             Ok(())
         } else {
             Err(Error::InvalidStateChange(
@@ -291,12 +338,14 @@ impl Engine {
     /// Get the license text
     async fn get_license(&mut self, name: &str) -> Result<(), Error> {
         // invariant: the engine is in SelectWorkshop State
-        if let Some(State::SelectWorkshop { .. }) = self.state.last() {
+        if let Some(State::SelectWorkshop { workshops_data }) = self.state.last() {
+            let workshop_data = workshops_data
+                .get(name)
+                .ok_or_else(|| Error::WorkshopNotFound(name.to_string()))?;
             // get the license text
-            let license = self.fs.get_license(name).await?;
+            let license_text = workshop_data.get_license().await?;
             // SelectWorkshop -> ShowLicense
-            self.state.push(State::ShowLicense(license.clone()));
-
+            self.state.push(State::ShowLicense { license_text });
             Ok(())
         } else {
             Err(Error::InvalidStateChange(
@@ -309,16 +358,18 @@ impl Engine {
     /// change the spoken language
     async fn change_spoken_language(&mut self) -> Result<(), Error> {
         // invariant: the engine is in SelectWorkshop
-        if let Some(State::SelectWorkshop { .. }) = self.state.last() {
-            // changing the spoken language while on the workshops screen will change the
-            // workshops available to only those that support the spoken language so we compile a
-            // list of all spoken languages supported by the currently installed workshops
-            let spoken_languages = self.fs.get_workshops_spoken_languages()?;
-
+        if let Some(State::SelectWorkshop { workshops_data }) = self.state.last() {
+            // this gathers all of the spoken languages of the workshops selected by the current
+            // spoken and programming language setting
+            let mut spoken_languages: Vec<spoken::Code> = workshops_data
+                .values()
+                .flat_map(|workshop_data| workshop_data.get_all_spoken_languages())
+                .collect::<Vec<_>>();
+            spoken_languages.sort();
+            spoken_languages.dedup();
             // SelectWorkshop or SelectLesson -> SelectSpokenLanguage
             self.state
                 .push(State::SelectSpokenLanguage { spoken_languages });
-
             Ok(())
         } else {
             Err(Error::InvalidStateChange(
@@ -338,21 +389,26 @@ impl Engine {
             // remove the SelectSpokenLanguage state
             self.state.pop();
             // set the spoken language
-            self.fs.set_spoken_language(spoken_language);
-
+            self.spoken_language = spoken_language;
             // need to refresh the list of workshops based off of the new spoken language
             if let Some(State::SelectWorkshop { .. }) = self.state.last() {
                 // remove the old SelectWorkshop state
                 self.state.pop();
-                // get the new list of workshops
-                let workshops = self.fs.get_workshops_data_filtered()?;
-                // push the new SelectWorkshop state
-                self.state.push(State::SelectWorkshop(workshops));
+                // gather the set of workshops based on the new spoken language and programming
+                // language settings
+                let workshops_data = self
+                    .fs
+                    .get_workshops_data()?
+                    .into_iter()
+                    .filter(|(_, workshop_data)| {
+                        workshop_data.is_selected(self.spoken_language, self.programming_language)
+                    })
+                    .collect::<HashMap<_, _>>();
+                self.state.push(State::SelectWorkshop { workshops_data });
                 // push the set default state
                 self.state
                     .push(State::SetSpokenLanguageDefault { spoken_language });
             }
-
             Ok(())
         } else {
             Err(Error::InvalidStateChange(
@@ -365,18 +421,19 @@ impl Engine {
     /// change the programming language
     async fn change_programming_language(&mut self) -> Result<(), Error> {
         // invariant: the engine is in
-        if let Some(State::SelectWorkshop { .. }) = self.state.last() {
-            // changing the programming language while on the workshops screen will change the
-            // workshops available to only those that support the programming language so we
-            // compile a list of all programming languages supported by the currently installed
-            // workshops
-            let programming_languages = self.fs.get_workshops_programming_languages()?;
-
+        if let Some(State::SelectWorkshop { workshops_data }) = self.state.last() {
+            // this gathers the list of programming languages from the workshops selected by the
+            // current spoken and programming language settings
+            let mut programming_languages: Vec<programming::Code> = workshops_data
+                .values()
+                .flat_map(|workshop| workshop.get_all_programming_languages())
+                .collect::<Vec<_>>();
+            programming_languages.sort();
+            programming_languages.dedup();
             // SelectWorkshop or SelectLesson -> SelectProgrammingLanguage
             self.state.push(State::SelectProgrammingLanguage {
                 programming_languages,
             });
-
             Ok(())
         } else {
             Err(Error::InvalidStateChange(
@@ -396,16 +453,21 @@ impl Engine {
             // remove the SelectSpokenLanguage state
             self.state.pop();
             // set the spoken language
-            self.fs.set_programming_language(programming_language);
+            self.programming_language = programming_language;
 
             // need to refresh the list of workshops based off of the new spoken language
             if let Some(State::SelectWorkshop { .. }) = self.state.last() {
                 // remove the old SelectWorkshop state
                 self.state.pop();
-                // get the new list of workshops
-                let workshops = self.fs.get_workshops_data_filtered()?;
-                // push the new SelectWorkshop state
-                self.state.push(State::SelectWorkshop(workshops));
+                let workshops_data = self
+                    .fs
+                    .get_workshops_data()?
+                    .into_iter()
+                    .filter(|(_, workshop_data)| {
+                        workshop_data.is_selected(self.spoken_language, self.programming_language)
+                    })
+                    .collect::<HashMap<_, _>>();
+                self.state.push(State::SelectWorkshop { workshops_data });
                 // push the set default state
                 self.state.push(State::SetProgrammingLanguageDefault {
                     programming_language,
@@ -424,14 +486,19 @@ impl Engine {
     /// set the workshop
     pub async fn set_workshop(&mut self, name: &str) -> Result<(), Error> {
         // invariant: the engine is in SelectWorkshop state
-        if let Some(State::SelectWorkshop { .. }) = self.state.last() {
+        if let Some(State::SelectWorkshop { workshops_data }) = self.state.last() {
+            let workshop_data = workshops_data
+                .get(name)
+                .ok_or_else(|| Error::WorkshopNotFound(name.to_string()))?;
             // set the workshop
-            self.fs.set_workshop(Some(name.to_string()));
-            // get the selected workshop
-            let lessons = self.fs.get_lessons_data_filtered(name)?;
+            self.workshop = Some(workshop_data.get_name().to_string());
+            // get the selected workshop's lessons
+            let lessons_data = workshop_data
+                .get_lessons_data(self.spoken_language, self.programming_language)
+                .await?;
 
             // SelectWorkshop -> SelectLesson
-            self.state.push(State::SelectLesson(lessons));
+            self.state.push(State::SelectLesson { lessons_data });
 
             Ok(())
         } else {
@@ -447,8 +514,7 @@ impl Engine {
         // invariant: the engine is in SelectLesson state
         if let Some(State::SelectLesson { .. }) = self.state.last() {
             // set the lesson
-            self.fs.set_lesson(Some(name.to_string()));
-
+            self.lesson = Some(name.to_string());
             Ok(())
         } else {
             Err(Error::InvalidStateChange(

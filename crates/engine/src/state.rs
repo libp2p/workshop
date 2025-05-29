@@ -1,6 +1,71 @@
-use crate::{Lesson, WorkshopData};
+use crate::{LessonData, WorkshopData};
 use languages::{programming, spoken};
 use std::collections::HashMap;
+
+// The state machine for the engine
+//
+//            ┌─────┐
+//            │ Nil │
+//            └──┬──┘
+//               │
+//            <Config>
+//               │
+//               │
+//               │
+//               │                             ┌──────────────────────────────────────────────────────┐
+// ╟──<quit>──┐  │  ┌───────────<back>─────────┤ SetProgrammingLanguageDefault (programming_language) │
+//            │  │  │                          └──────────────────────────────────────────────────────┘
+//            │  │  │                                                ▲
+//            │  │  │                                                │
+//            │  │  │                                     <SetProgrammingLanguage>
+//            │  │  │                                                │
+//            │  │  │                            ┌───────────────────┴───────────────────────────────┐
+//            │  │  │                            │ SelectProgrammingLanguage (programming_languages) │
+//            │  ▼  ▼                            └───────────────────────────────────────────────────┘
+// ┌──────────┴──────────────────┐                                   ▲
+// │                             ├────<ChangeProgrammingLanguage>────┘
+// │                             │
+// │                             │                      ┌────────────────────────────┐
+// │                             ├─────<GetLicense>────>│                            │
+// │ SelectWorkshop (workshops)  │                      │ ShowLicense (license_text) │
+// │                             │<───────<Back>────────┤                            │
+// │                             │                      └────────────────────────────┘
+// │                             │
+// │                             ├────<ChangeSpokenLanguage>─────────┐
+// └─────────────┬───────────────┘                                   ▼
+//            ▲  │  ▲                            ┌─────────────────────────────────────────┐
+//            │  │  │                            │ SelectSpokenLanguage (spoken_languages) │
+//         <back>│  │                            └───────────────────┬─────────────────────┘
+//            │  │  │                                                │
+//            │  │  │                                       <SetSpokenLanguage>
+//            │  │  │                                                │
+//            │  │  │                                                ▼
+//            │  │  │                           ┌────────────────────────────────────────────┐
+//            │  │  └───────────<back>──────────┤ SetSpokenLanguageDefault (spoken_language) │
+//            │  │                              └────────────────────────────────────────────┘
+//         <SetWorkshop>
+//            │  │
+//            │  ▼
+//   ┌────────┴───────────────┐
+//   │ SelectLesson (lessons) │
+//   └───────────┬────────────┘
+//            ▲  │  ▲                                          ┌────────────────┐
+//            │  │  └──────────────────<back>──────────────────┤ LessonComplete │
+//         <back>│                                             └────────────────┘
+//            │  │                                                     ▲
+//            │  │                                                     │
+//            │  │                                                 [Complete]
+//            │  ▼                                                     │
+//  ┌─────────┴────────────────┐                       ┌───────────────┴────────────────┐
+//  │ ShowLesson (lesson_text) ├─────<CheckLesson>────>│ CheckLesson (task, log_handle) │
+//  └──────────────────────────┘                       └───────────────┬────────────────┘
+//               ▲                                                     │
+//               │                                                 [Failure]
+//               │                                                     │
+//               │                                                     ▼
+//               │                                            ┌──────────────────┐
+//               └─────────────────────<back>─────────────────┤ LessonIncomplete │
+//                                                            └──────────────────┘
 
 /// the engine state
 #[derive(Clone, Debug, Default)]
@@ -9,9 +74,11 @@ pub enum State {
     #[default]
     Nil,
     /// select the workshop
-    SelectWorkshop(HashMap<String, WorkshopData>),
-    /// select the lesson
-    SelectLesson(Vec<Lesson>),
+    SelectWorkshop {
+        workshops_data: HashMap<String, WorkshopData>,
+    },
+    /// send the license text
+    ShowLicense { license_text: String },
     /// select the spoken language
     SelectSpokenLanguage { spoken_languages: Vec<spoken::Code> },
     /// set the spoken language default
@@ -26,8 +93,16 @@ pub enum State {
     SetProgrammingLanguageDefault {
         programming_language: Option<programming::Code>,
     },
-    /// send the license text
-    ShowLicense(String),
+    /// select the lesson
+    SelectLesson {
+        lessons_data: HashMap<String, LessonData>,
+    },
+    /// check the lesson
+    CheckLesson,
+    /// lesson is complete
+    LessonComplete,
+    /// lesson is incomplete
+    LessonIncomplete,
     /// Error state
     Error(String),
     /// quit
@@ -38,15 +113,18 @@ impl std::fmt::Display for State {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             State::Nil => write!(f, "Nil"),
-            State::SelectWorkshop(_) => write!(f, "SelectWorkshop"),
-            State::SelectLesson(_) => write!(f, "SelectLesson"),
+            State::SelectWorkshop { .. } => write!(f, "SelectWorkshop"),
+            State::ShowLicense { .. } => write!(f, "License"),
             State::SelectSpokenLanguage { .. } => write!(f, "SelectSpokenLanguage"),
             State::SetSpokenLanguageDefault { .. } => write!(f, "SetSpokenLanguageDefault"),
             State::SelectProgrammingLanguage { .. } => write!(f, "SelectProgrammingLanguage"),
             State::SetProgrammingLanguageDefault { .. } => {
                 write!(f, "SetProgrammingLanguageDefault")
             }
-            State::ShowLicense(_) => write!(f, "License"),
+            State::SelectLesson { .. } => write!(f, "SelectLesson"),
+            State::CheckLesson => write!(f, "CheckLesson"),
+            State::LessonComplete => write!(f, "LessonComplete"),
+            State::LessonIncomplete => write!(f, "LessonIncomplete"),
             State::Error(error) => write!(f, "Error: {}", error),
             State::Quit => write!(f, "Quit"),
         }

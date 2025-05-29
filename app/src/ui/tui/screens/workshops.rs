@@ -30,6 +30,10 @@ pub struct Workshops<'a> {
     descriptions: HashMap<String, String>,
     /// the setup instructions of the workshops
     setup_instructions: HashMap<String, String>,
+    /// the spoken languages this workshop has been translated to
+    spoken_languages: HashMap<String, Vec<spoken::Code>>,
+    /// the programming languages this workshop has been ported to
+    programming_languages: HashMap<String, Vec<programming::Code>>,
     /// the cached list
     titles: List<'a>,
     /// the list state of workshop title
@@ -51,10 +55,16 @@ impl Workshops<'_> {
         workshops: &HashMap<String, Workshop>,
         descriptions: &HashMap<String, String>,
         setup_instructions: &HashMap<String, String>,
+        spoken_languages: &HashMap<String, Vec<spoken::Code>>,
+        programming_languages: &HashMap<String, Vec<programming::Code>>,
         spoken_language: Option<spoken::Code>,
         programming_language: Option<programming::Code>,
     ) {
         self.workshops = workshops.clone();
+        self.descriptions = descriptions.clone();
+        self.setup_instructions = setup_instructions.clone();
+        self.spoken_languages = spoken_languages.clone();
+        self.programming_languages = programming_languages.clone();
         self.spoken_language = spoken_language;
         self.programming_language = programming_language;
 
@@ -97,6 +107,18 @@ impl Workshops<'_> {
     fn get_selected_workshop(&self) -> Option<&Workshop> {
         let workshop_key = self.get_selected_workshop_key()?;
         self.workshops.get(workshop_key.as_str())
+    }
+
+    /// get the spoken languages for the selected workshop
+    fn get_selected_workshop_spoken_languages(&self) -> Option<&Vec<spoken::Code>> {
+        let workshop_key = self.get_selected_workshop_key()?;
+        self.spoken_languages.get(workshop_key.as_str())
+    }
+
+    /// get the programming languages for the selected workshop
+    fn get_selected_workshop_programming_languages(&self) -> Option<&Vec<programming::Code>> {
+        let workshop_key = self.get_selected_workshop_key()?;
+        self.programming_languages.get(workshop_key.as_str())
     }
 
     /// get the description of the selected workshop
@@ -173,6 +195,36 @@ impl Workshops<'_> {
             None => {
                 details
                     .push_str("No workshops support the selected spoken and programming languages");
+            }
+        }
+        match self.get_selected_workshop_spoken_languages() {
+            Some(spoken_languages) => {
+                details.push_str("\n\n");
+                details.push_str(
+                    &spoken_languages
+                        .iter()
+                        .map(|c| c.to_string())
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                );
+            }
+            None => {
+                details.push_str("\n\nNo spoken languages supported");
+            }
+        }
+        match self.get_selected_workshop_programming_languages() {
+            Some(programming_languages) => {
+                details.push_str("\n\n");
+                details.push_str(
+                    &programming_languages
+                        .iter()
+                        .map(|c| c.to_string())
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                );
+            }
+            None => {
+                details.push_str("\n\nNo programming languages supported");
             }
         }
         match self.get_selected_workshop_description() {
@@ -352,6 +404,8 @@ impl Screen for Workshops<'_> {
             workshops,
             descriptions,
             setup_instructions,
+            spoken_languages,
+            programming_languages,
             spoken_language,
             programming_language,
         } = msg
@@ -361,6 +415,8 @@ impl Screen for Workshops<'_> {
                 &workshops,
                 &descriptions,
                 &setup_instructions,
+                &spoken_languages,
+                &programming_languages,
                 spoken_language,
                 programming_language,
             );

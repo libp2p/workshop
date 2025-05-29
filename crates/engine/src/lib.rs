@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 /// the config trait
 pub mod config;
 pub use config::Config;
