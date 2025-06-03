@@ -1,4 +1,4 @@
-use crate::Error;
+use crate::{languages::Error as LanguageError, Error};
 use serde::{Deserialize, Serialize};
 
 /// A programming language with language code, file extension, and name
@@ -51,7 +51,7 @@ impl TryFrom<&str> for Language {
                     name: name.to_string(),
                 })
             }
-            Err(_) => Err(Error::InvalidLanguageName(value.to_string())),
+            Err(_) => Err(LanguageError::InvalidLanguageName(value.to_string()).into()),
         }
     }
 }
@@ -65,7 +65,7 @@ impl TryFrom<&str> for Code {
         } else if let Some(code) = get_language_code_from_name(value) {
             Ok(code)
         } else {
-            Err(Error::InvalidLanguageCode(value.to_string()))
+            Err(LanguageError::InvalidLanguageCode(value.to_string()).into())
         }
     }
 }

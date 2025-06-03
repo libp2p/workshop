@@ -1,8 +1,8 @@
 use crate::{
+    languages::{programming, spoken},
     models::{LessonData, WorkshopData},
     ui::tui::screens::Screens,
 };
-use languages::{programming, spoken};
 use std::collections::HashMap;
 
 /// UI events

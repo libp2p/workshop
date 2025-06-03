@@ -20,7 +20,7 @@ pub enum Error {
 
     /// Language error
     #[error(transparent)]
-    Languages(#[from] languages::Error),
+    Languages(#[from] crate::languages::Error),
 
     /// Mutex error
     #[error("Failed to lock mutex: {0}")]

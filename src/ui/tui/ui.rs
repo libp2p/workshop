@@ -1,4 +1,5 @@
 use crate::{
+    languages::{programming, spoken},
     ui::tui::{
         self,
         screens::{self, Screen, Screens},
@@ -7,7 +8,6 @@ use crate::{
 };
 use crossterm::event::{self, EventStream, KeyCode};
 use futures::{future::FutureExt, StreamExt};
-use languages::{programming, spoken};
 use ratatui::{buffer::Buffer, layout::Rect, widgets::Widget};
 use std::{
     collections::HashMap,

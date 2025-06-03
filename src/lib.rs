@@ -3,6 +3,7 @@ pub use config::Config;
 pub mod error;
 pub use error::Error;
 pub mod fs;
+pub mod languages;
 pub mod log;
 pub use log::Log;
 pub mod models;

@@ -1,8 +1,11 @@
 pub mod lazy_loader;
 pub use lazy_loader::{LazyLoader, TryLoad};
 
-use crate::{models::workshop, Error};
-use languages::{programming, spoken};
+use crate::{
+    languages::{programming, spoken},
+    models::workshop,
+    Error,
+};
 use std::{collections::HashMap, path::Path};
 
 /// Get the complete list of all spoken languages supported by all installed workshops

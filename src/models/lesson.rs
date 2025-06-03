@@ -1,8 +1,8 @@
 use crate::{
     fs::{LazyLoader, TryLoad},
+    languages::{programming, spoken},
     Error,
 };
-use languages::{programming, spoken};
 use serde::{Deserialize, Serialize};
 use std::{
     fmt,

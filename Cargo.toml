@@ -1,12 +1,5 @@
-[workspace]
-resolver = "2"
-default-members = ["app", "crates/languages"]
-members = [
-    "app",
-    "crates/languages",
-]
-
-[workspace.package]
+[package]
+name = "workshop"
 version = "0.1.0"
 edition = "2021"
 authors = ["Dave Grantham <dwg@linuxprogrammer.org>"]
@@ -14,27 +7,24 @@ description = "A toolkit for authoring and presenting programming workshops"
 readme = "README.md"
 license = "MIT OR Apache-2.0"
 
-[workspace.lints.rust]
-unexpected_cfgs = { level = "warn", check-cfg = [
-  'cfg(feature, values("cargo-clippy"))',
-  'cfg(fuzzing)'
-]}
-
-[workspace.dependencies]
-# local crates
-engine = { path = "crates/engine" }
-languages = { path = "crates/languages" }
-
-# external crates
+[dependencies]
+anyhow = "1.0.98"
 async-trait = "0.1.88"
+clap = { version = "4.5.37", features = ["derive"] }
+crossterm = { version = "0.29.0", features = ["event-stream", "events"] }
+directories = "6.0"
 futures = "0.3.31"
 futures-timer = "3.0.3"
 markdown = "1.0"
+pulldown-cmark = "0.13"
+ratatui = { version = "0.29.0", features = ["crossterm"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_yaml = "0.9"
+syntect = "5.2.0"
 thiserror = "2.0.12"
 tokio = { version = "1.32", features = ["full"] }
 tokio-util = "0.7.15"
 tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
 webbrowser = "1.0.4"
+textwrap = "0.16.2"

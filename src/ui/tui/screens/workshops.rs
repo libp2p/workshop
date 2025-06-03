@@ -1,10 +1,10 @@
 use crate::{
+    languages::{programming, spoken},
     models::{Workshop, WorkshopData},
     ui::tui::{self, screens, widgets::ScrollText, Screen},
     Error,
 };
 use crossterm::event::{self, KeyCode};
-use languages::{programming, spoken};
 use ratatui::{
     buffer::Buffer,
     layout::{Alignment, Constraint, Flex, Layout, Rect},

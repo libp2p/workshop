@@ -1,6 +1,8 @@
-use crate::Error;
+use crate::{
+    languages::{programming, spoken},
+    Error,
+};
 use directories::ProjectDirs;
-use languages::{programming, spoken};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use tracing::info;

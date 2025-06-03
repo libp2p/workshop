@@ -1,9 +1,9 @@
 use crate::{
+    languages::spoken,
     ui::tui::{self, screens, Screen},
     Error,
 };
 use crossterm::event::{self, KeyCode};
-use languages::programming;
 use ratatui::{
     buffer::Buffer,
     layout::{Alignment, Constraint, Flex, Layout, Offset, Rect},
@@ -16,48 +16,48 @@ use tokio::sync::mpsc::Sender;
 use tracing::info;
 
 #[derive(Clone, Debug, Default)]
-pub struct Programming<'a> {
-    /// the programming language list
-    programming_languages: Vec<programming::Code>,
-    /// the currenttly selected programming language
-    programming_language: Option<programming::Code>,
+pub struct Spoken<'a> {
+    /// the spoken language list
+    spoken_languages: Vec<spoken::Code>,
+    /// the currently selected spoken language
+    spoken_language: Option<spoken::Code>,
     /// the cached rect from last render
     area: Rect,
     /// the cached calculated rect
     centered: Rect,
     /// the cached list
     list: List<'a>,
-    /// programming language list state
+    /// spoken language list state
     list_state: ListState,
 }
 
-impl Programming<'_> {
-    /// set the programming language list
-    async fn set_programming_languages(
+impl Spoken<'_> {
+    /// set the spoken language list
+    async fn set_spoken_languages(
         &mut self,
-        programming_languages: &[programming::Code],
+        spoken_languages: &[spoken::Code],
     ) -> Result<(), Error> {
-        self.programming_languages = programming_languages.to_vec();
+        self.spoken_languages = spoken_languages.to_vec();
 
-        let mut programming_language_names = vec!["Any".to_string()];
-        programming_language_names.extend(
-            programming_languages
+        let mut spoken_language_names = vec!["Any".to_string()];
+        spoken_language_names.extend(
+            spoken_languages
                 .iter()
-                .map(|code| code.get_name().to_string()),
+                .map(|code| code.get_name_in_english().to_string()),
         );
-        let select_index = match self.programming_language {
-            Some(code) => match programming_languages.iter().position(|&c| c == code) {
+        let selected_index = match self.spoken_language {
+            Some(code) => match spoken_languages.iter().position(|&c| c == code) {
                 Some(index) => Some(index + 1),
                 None => Some(0),
             },
             None => Some(0),
         };
 
-        self.list_state.select(select_index);
-        self.list = List::new(programming_language_names)
+        self.list_state.select(selected_index);
+        self.list = List::new(spoken_language_names)
             .block(
                 Block::default()
-                    .title(" Programming Languages ")
+                    .title(" Spoken Languages ")
                     .padding(Padding::horizontal(1))
                     .style(Style::default().fg(Color::White))
                     .borders(Borders::ALL),
@@ -70,16 +70,17 @@ impl Programming<'_> {
             )
             .style(Style::default().fg(Color::White))
             .highlight_symbol("> ");
+
         Ok(())
     }
 
-    async fn set_programming_language(
+    async fn set_spoken_language(
         &mut self,
-        programming_language: Option<programming::Code>,
+        spoken_language: Option<spoken::Code>,
     ) -> Result<(), Error> {
-        self.programming_language = programming_language;
-        let select_index = match programming_language {
-            Some(code) => match self.programming_languages.iter().position(|&c| c == code) {
+        self.spoken_language = spoken_language;
+        let select_index = match spoken_language {
+            Some(code) => match self.spoken_languages.iter().position(|&c| c == code) {
                 Some(index) => Some(index + 1),
                 None => Some(0),
             },
@@ -121,13 +122,11 @@ impl Programming<'_> {
             .borders(Borders::NONE)
             .padding(Padding::horizontal(1));
 
-        let keys = Paragraph::new(
-            " ↓/↑ or j/k: scroll  |  enter: select  |  PgUp: start  | PgDwn: end  |  b: back  |  q: quit",
-        )
-        .block(block)
-        .style(Style::default().fg(Color::Black).bg(Color::White))
-        .wrap(Wrap { trim: true })
-        .alignment(Alignment::Left);
+        let keys = Paragraph::new(" ↓/↑ or j/k: scroll  |  enter: select")
+            .block(block)
+            .style(Style::default().fg(Color::Black).bg(Color::White))
+            .wrap(Wrap { trim: true })
+            .alignment(Alignment::Left);
 
         Widget::render(keys, area, buf);
     }
@@ -139,14 +138,13 @@ impl Programming<'_> {
         _to_ui: Sender<screens::Event>,
     ) -> Result<(), Error> {
         match event {
-            tui::Event::ProgrammingLanguage(programming_language) => {
-                info!("programming language set: {:?}", programming_language);
-                self.set_programming_language(programming_language).await?;
+            tui::Event::SpokenLanguage(spoken_language) => {
+                info!("Spoken language set: {:?}", spoken_language);
+                self.set_spoken_language(spoken_language).await?;
             }
-            tui::Event::SetProgrammingLanguages(ref programming_languages) => {
-                info!("Setting programming languages: {:?}", programming_languages);
-                self.set_programming_languages(programming_languages)
-                    .await?;
+            tui::Event::SetSpokenLanguages(ref spoken_languages) => {
+                info!("Setting spoken languages: {:?}", spoken_languages);
+                self.set_spoken_languages(spoken_languages).await?;
             }
             _ => {
                 info!("Ignoring UI event: {:?}", event);
@@ -173,23 +171,23 @@ impl Programming<'_> {
                 KeyCode::Char('k') | KeyCode::Up => self.list_state.select_previous(),
                 KeyCode::Enter => {
                     if let Some(selected) = self.list_state.selected() {
-                        let programming_language = if selected == 0 {
-                            info!("programming language selected: Any");
+                        let spoken_language = if selected == 0 {
+                            info!("Spoken language selected: Any");
                             None
                         } else {
-                            match self.programming_languages.get(selected - 1) {
+                            match self.spoken_languages.get(selected - 1) {
                                 Some(code) => {
-                                    info!("programming language selected: {:?}", code);
+                                    info!("Spoken language selected: {:?}", code);
                                     Some(*code)
                                 }
                                 None => {
-                                    info!("No programming language selected");
+                                    info!("No spoken language selected");
                                     None
                                 }
                             }
                         };
                         to_ui
-                            .send(tui::Event::ProgrammingLanguage(programming_language).into())
+                            .send(tui::Event::SpokenLanguage(spoken_language).into())
                             .await?;
                     }
                 }
@@ -201,7 +199,7 @@ impl Programming<'_> {
 }
 
 #[async_trait::async_trait]
-impl Screen for Programming<'_> {
+impl Screen for Spoken<'_> {
     async fn handle_event(
         &mut self,
         event: screens::Event,

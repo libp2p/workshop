@@ -1,9 +1,9 @@
 use crate::{
+    languages::programming,
     ui::tui::{self, screens, Screen},
     Error,
 };
 use crossterm::event::{self, KeyCode};
-use languages::spoken;
 use ratatui::{
     buffer::Buffer,
     layout::{Alignment, Constraint, Flex, Layout, Offset, Rect},
@@ -15,8 +15,12 @@ use ratatui::{
 use tokio::sync::mpsc::Sender;
 use tracing::info;
 
-#[derive(Clone, Debug)]
-pub struct SetDefault<'a> {
+#[derive(Clone, Debug, Default)]
+pub struct Programming<'a> {
+    /// the programming language list
+    programming_languages: Vec<programming::Code>,
+    /// the currenttly selected programming language
+    programming_language: Option<programming::Code>,
     /// the cached rect from last render
     area: Rect,
     /// the cached calculated rect
@@ -25,21 +29,35 @@ pub struct SetDefault<'a> {
     list: List<'a>,
     /// programming language list state
     list_state: ListState,
-    /// event to send if they select "yes"
-    event: tui::Event,
-    /// the currently selected spoken language
-    spoken_language: Option<spoken::Code>,
 }
 
-impl SetDefault<'_> {
-    /// create a new yes/no dialog
-    pub fn new(question: &str) -> Self {
-        let mut list_state = ListState::default();
-        list_state.select(Some(0));
-        let list = List::new(vec!["Yes", "No"])
+impl Programming<'_> {
+    /// set the programming language list
+    async fn set_programming_languages(
+        &mut self,
+        programming_languages: &[programming::Code],
+    ) -> Result<(), Error> {
+        self.programming_languages = programming_languages.to_vec();
+
+        let mut programming_language_names = vec!["Any".to_string()];
+        programming_language_names.extend(
+            programming_languages
+                .iter()
+                .map(|code| code.get_name().to_string()),
+        );
+        let select_index = match self.programming_language {
+            Some(code) => match programming_languages.iter().position(|&c| c == code) {
+                Some(index) => Some(index + 1),
+                None => Some(0),
+            },
+            None => Some(0),
+        };
+
+        self.list_state.select(select_index);
+        self.list = List::new(programming_language_names)
             .block(
                 Block::default()
-                    .title(format!(" {} ", question))
+                    .title(" Programming Languages ")
                     .padding(Padding::horizontal(1))
                     .style(Style::default().fg(Color::White))
                     .borders(Borders::ALL),
@@ -52,27 +70,22 @@ impl SetDefault<'_> {
             )
             .style(Style::default().fg(Color::White))
             .highlight_symbol("> ");
-
-        Self {
-            area: Rect::default(),
-            centered: Rect::default(),
-            list,
-            list_state,
-            event: tui::Event::Show(screens::Screens::Workshops),
-            spoken_language: None,
-        }
-    }
-
-    async fn set_spoken_language(
-        &mut self,
-        spoken_language: Option<spoken::Code>,
-    ) -> Result<(), Error> {
-        self.spoken_language = spoken_language;
         Ok(())
     }
 
-    async fn set_event(&mut self, event: tui::Event) -> Result<(), Error> {
-        self.event = event;
+    async fn set_programming_language(
+        &mut self,
+        programming_language: Option<programming::Code>,
+    ) -> Result<(), Error> {
+        self.programming_language = programming_language;
+        let select_index = match programming_language {
+            Some(code) => match self.programming_languages.iter().position(|&c| c == code) {
+                Some(index) => Some(index + 1),
+                None => Some(0),
+            },
+            None => Some(0),
+        };
+        self.list_state.select(select_index);
         Ok(())
     }
 
@@ -86,7 +99,7 @@ impl SetDefault<'_> {
             .areas(area);
             [_, self.centered, _] = Layout::vertical([
                 Constraint::Fill(1),
-                Constraint::Max(10),
+                Constraint::Percentage(33),
                 Constraint::Fill(1),
             ])
             .areas(hc);
@@ -108,11 +121,13 @@ impl SetDefault<'_> {
             .borders(Borders::NONE)
             .padding(Padding::horizontal(1));
 
-        let keys = Paragraph::new(" ↓/↑ or j/k: scroll  |  enter: select ")
-            .block(block)
-            .style(Style::default().fg(Color::Black).bg(Color::White))
-            .wrap(Wrap { trim: true })
-            .alignment(Alignment::Left);
+        let keys = Paragraph::new(
+            " ↓/↑ or j/k: scroll  |  enter: select  |  PgUp: start  | PgDwn: end  |  b: back  |  q: quit",
+        )
+        .block(block)
+        .style(Style::default().fg(Color::Black).bg(Color::White))
+        .wrap(Wrap { trim: true })
+        .alignment(Alignment::Left);
 
         Widget::render(keys, area, buf);
     }
@@ -124,13 +139,14 @@ impl SetDefault<'_> {
         _to_ui: Sender<screens::Event>,
     ) -> Result<(), Error> {
         match event {
-            tui::Event::SpokenLanguage(spoken_language) => {
-                info!("Spoken language set: {:?}", spoken_language);
-                self.set_spoken_language(spoken_language).await?;
+            tui::Event::ProgrammingLanguage(programming_language) => {
+                info!("programming language set: {:?}", programming_language);
+                self.set_programming_language(programming_language).await?;
             }
-            tui::Event::SetEvent(event) => {
-                info!("Setting event: {:?}", event);
-                self.set_event(*event).await?;
+            tui::Event::SetProgrammingLanguages(ref programming_languages) => {
+                info!("Setting programming languages: {:?}", programming_languages);
+                self.set_programming_languages(programming_languages)
+                    .await?;
             }
             _ => {
                 info!("Ignoring UI event: {:?}", event);
@@ -147,19 +163,35 @@ impl SetDefault<'_> {
     ) -> Result<(), Error> {
         if let event::Event::Key(key) = event {
             match key.code {
+                KeyCode::PageUp => self.list_state.select_first(),
+                KeyCode::PageDown => self.list_state.select_last(),
+                KeyCode::Char('b') | KeyCode::Esc => {
+                    info!("Back to previous screen");
+                    to_ui.send(tui::Event::LoadWorkshops.into()).await?;
+                }
                 KeyCode::Char('j') | KeyCode::Down => self.list_state.select_next(),
                 KeyCode::Char('k') | KeyCode::Up => self.list_state.select_previous(),
                 KeyCode::Enter => {
-                    match self.list_state.selected() {
-                        Some(0) => {
-                            info!("Setting default");
-                            to_ui.send(self.event.clone().into()).await?;
-                        }
-                        Some(_) | None => {
-                            info!("Back to previous screen");
-                            to_ui.send(tui::Event::LoadWorkshops.into()).await?;
-                        }
-                    };
+                    if let Some(selected) = self.list_state.selected() {
+                        let programming_language = if selected == 0 {
+                            info!("programming language selected: Any");
+                            None
+                        } else {
+                            match self.programming_languages.get(selected - 1) {
+                                Some(code) => {
+                                    info!("programming language selected: {:?}", code);
+                                    Some(*code)
+                                }
+                                None => {
+                                    info!("No programming language selected");
+                                    None
+                                }
+                            }
+                        };
+                        to_ui
+                            .send(tui::Event::ProgrammingLanguage(programming_language).into())
+                            .await?;
+                    }
                 }
                 _ => {}
             }
@@ -169,7 +201,7 @@ impl SetDefault<'_> {
 }
 
 #[async_trait::async_trait]
-impl Screen for SetDefault<'_> {
+impl Screen for Programming<'_> {
     async fn handle_event(
         &mut self,
         event: screens::Event,
@@ -200,12 +232,12 @@ impl Screen for SetDefault<'_> {
             .border_style(Style::default().fg(Color::DarkGray).bg(Color::DarkGray));
         Widget::render(block, shadow_area, buf);
 
-        let [question_area, status_area] =
+        let [list_area, status_area] =
             Layout::vertical([Constraint::Percentage(100), Constraint::Min(1)])
                 .flex(Flex::End)
                 .areas(working_area);
 
-        self.render_list(question_area, buf);
+        self.render_list(list_area, buf);
         self.render_status(status_area, buf);
         Ok(())
     }

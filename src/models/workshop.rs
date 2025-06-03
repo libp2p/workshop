@@ -1,9 +1,9 @@
 use crate::{
     fs::{LazyLoader, TryLoad},
+    languages::{programming, spoken},
     models::LessonData,
     Error,
 };
-use languages::{programming, spoken};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,

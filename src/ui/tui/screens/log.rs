@@ -1,9 +1,9 @@
 use crate::{
+    languages::spoken,
     ui::tui::{self, screens, widgets::ScrollText, Screen},
     Error,
 };
 use crossterm::event::{self, KeyCode};
-use languages::spoken;
 use ratatui::{
     buffer::Buffer,
     layout::{Alignment, Constraint, Flex, Layout, Offset, Rect},
@@ -11,28 +11,42 @@ use ratatui::{
     text::Line,
     widgets::{Block, Borders, Clear, Padding, Paragraph, StatefulWidget, Widget, Wrap},
 };
+use std::collections::VecDeque;
 use tokio::sync::mpsc::Sender;
 use tracing::info;
 
-#[derive(Clone, Debug, Default)]
-pub struct License<'a> {
-    /// license text
+#[derive(Clone, Debug)]
+pub struct Log<'a> {
+    /// the log messages
+    log: VecDeque<String>,
+    /// max log length
+    max_log: usize,
+    /// the cached merged log messages
     text: String,
+    /// scroll text widget
+    st: ScrollText<'a>,
     /// the cached rect from last render
     area: Rect,
     /// the cached calculated rect
     centered: Rect,
-    /// scroll text widget
-    st: ScrollText<'a>,
     /// the currently selected spoken language
     spoken_language: Option<spoken::Code>,
 }
 
-impl License<'_> {
-    /// set the license text
-    pub async fn set_license(&mut self, text: String) -> Result<(), Error> {
-        self.text = text;
-        Ok(())
+impl Log<'_> {
+    /// Create a new log Screen
+    pub fn new(max_log: usize) -> Self {
+        let mut st = ScrollText::default();
+        st.scroll_bottom();
+        Self {
+            log: VecDeque::default(),
+            max_log,
+            text: String::new(),
+            st,
+            area: Rect::default(),
+            centered: Rect::default(),
+            spoken_language: None,
+        }
     }
 
     async fn set_spoken_language(
@@ -60,13 +74,31 @@ impl License<'_> {
         }
     }
 
+    fn add_message(&mut self, msg: String) {
+        // add the message to the log
+        self.log.push_back(msg);
+        // if the log is too long, remove the oldest message
+        if self.log.len() > self.max_log {
+            self.log.pop_front();
+        }
+
+        // combine the log lines into a single string
+        self.text = self
+            .log
+            .iter()
+            .map(|line| line.as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+    }
+
     // render the log messages
-    fn render_license(&mut self, area: Rect, buf: &mut Buffer) {
+    fn render_log(&mut self, area: Rect, buf: &mut Buffer) {
+        // clear
         Widget::render(Clear, area, buf);
 
-        // render the list of license lines
+        // render the list of log lines
         let block = Block::new()
-            .title(Line::from(" License "))
+            .title(Line::from(" Log "))
             .padding(Padding::horizontal(1))
             .borders(Borders::ALL)
             .border_style(Style::default().fg(Color::White));
@@ -86,7 +118,7 @@ impl License<'_> {
             .padding(Padding::horizontal(1));
 
         let keys = Paragraph::new(
-            " ↓/↑ or j/k: scroll  |  PgUp: start  | PgDwn: end  |  b: back  |  q: quit",
+            " ↓/↑ or j/k: scroll  |  PgUp: start  | PgDwn: end  |  `: back  |  q: quit",
         )
         .block(block)
         .style(Style::default().fg(Color::Black).bg(Color::White))
@@ -107,9 +139,8 @@ impl License<'_> {
                 info!("Spoken language set: {:?}", spoken_language);
                 self.set_spoken_language(spoken_language).await?;
             }
-            tui::Event::SetLicense(text) => {
-                info!("Setting license text");
-                self.set_license(text).await?;
+            tui::Event::Log(msg) => {
+                self.add_message(msg);
             }
             _ => {
                 info!("Ignoring UI event: {:?}", event);
@@ -128,12 +159,12 @@ impl License<'_> {
             match key.code {
                 KeyCode::PageUp => self.st.scroll_top(),
                 KeyCode::PageDown => self.st.scroll_bottom(),
-                KeyCode::Char('b') | KeyCode::Esc => {
-                    info!("Back to previous screen");
-                    to_ui.send(tui::Event::LoadWorkshops.into()).await?;
+                KeyCode::Char('j') | KeyCode::Char('J') | KeyCode::Down => self.st.scroll_down(),
+                KeyCode::Char('k') | KeyCode::Char('K') | KeyCode::Up => self.st.scroll_up(),
+                KeyCode::Char('`') => {
+                    info!("input event: Hide Log");
+                    to_ui.send(tui::Event::ToggleLog.into()).await?
                 }
-                KeyCode::Char('j') | KeyCode::Down => self.st.scroll_down(),
-                KeyCode::Char('k') | KeyCode::Up => self.st.scroll_up(),
                 _ => {}
             }
         }
@@ -142,7 +173,7 @@ impl License<'_> {
 }
 
 #[async_trait::async_trait]
-impl Screen for License<'_> {
+impl Screen for Log<'_> {
     async fn handle_event(
         &mut self,
         event: screens::Event,
@@ -173,12 +204,12 @@ impl Screen for License<'_> {
             .border_style(Style::default().fg(Color::DarkGray).bg(Color::DarkGray));
         Widget::render(block, shadow_area, buf);
 
-        let [license_area, status_area] =
+        let [log_area, status_area] =
             Layout::vertical([Constraint::Percentage(100), Constraint::Min(1)])
                 .flex(Flex::End)
                 .areas(working_area);
 
-        self.render_license(license_area, buf);
+        self.render_log(log_area, buf);
         self.render_status(status_area, buf);
         Ok(())
     }
