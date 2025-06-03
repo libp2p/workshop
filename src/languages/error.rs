@@ -1,4 +1,4 @@
-/// Errors generated from this crate
+/// Errors generated from this module
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum Error {

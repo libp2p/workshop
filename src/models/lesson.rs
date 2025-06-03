@@ -1,6 +1,7 @@
 use crate::{
     fs::{LazyLoader, TryLoad},
     languages::{programming, spoken},
+    models::Error as ModelError,
     Error,
 };
 use serde::{Deserialize, Serialize};
@@ -116,18 +117,18 @@ impl TryLoad for LessonData {
             let name = path
                 .file_name()
                 .and_then(|p| p.to_str())
-                .ok_or(Error::LessonDataDirNotFound)?
+                .ok_or::<Error>(ModelError::LessonDataDirNotFound.into())?
                 .to_string();
             path.pop();
             let spoken_language = path
                 .file_name()
                 .and_then(|p| spoken::Code::try_from(p.to_string_lossy().as_ref()).ok())
-                .ok_or(Error::NoSpokenLanguageSpecified)?;
+                .ok_or::<Error>(ModelError::NoSpokenLanguageSpecified.into())?;
             path.pop();
             let programming_language = path
                 .file_name()
                 .and_then(|p| programming::Code::try_from(p.to_string_lossy().as_ref()).ok())
-                .ok_or(Error::NoProgrammingLanguageSpecified)?;
+                .ok_or::<Error>(ModelError::NoProgrammingLanguageSpecified.into())?;
             (name, spoken_language, programming_language)
         };
 
@@ -180,7 +181,7 @@ impl Loader {
     fn try_load_lesson_text(&self, lesson_dir: &Path) -> Result<LessonText, Error> {
         let lesson_text_path = lesson_dir.join("lesson.md");
         if !lesson_text_path.exists() {
-            return Err(Error::LessonTextFileMissing);
+            return Err(ModelError::LessonTextFileMissing.into());
         }
         Ok(Arc::new(RwLock::new(LazyLoader::NotLoaded(
             lesson_text_path,
@@ -190,23 +191,26 @@ impl Loader {
     fn try_load_metadata(&self, lesson_dir: &Path) -> Result<Metadata, Error> {
         let metadata_path = lesson_dir.join("lesson.yaml");
         if !metadata_path.exists() {
-            return Err(Error::LessonMetadataFileMissing);
+            return Err(ModelError::LessonMetadataFileMissing.into());
         }
         Ok(Arc::new(RwLock::new(LazyLoader::NotLoaded(metadata_path))))
     }
 
     pub fn try_load(&self) -> Result<LessonData, Error> {
         let name = self.name.clone();
-        let path = self.path.clone().ok_or(Error::LessonDataDirNotFound)?;
+        let path = self
+            .path
+            .clone()
+            .ok_or::<Error>(ModelError::LessonDataDirNotFound.into())?;
         path.exists()
             .then_some(())
-            .ok_or(Error::LessonDataDirNotFound)?;
+            .ok_or::<Error>(ModelError::LessonDataDirNotFound.into())?;
         let spoken_language = self
             .spoken_language
-            .ok_or(Error::NoSpokenLanguageSpecified)?;
+            .ok_or::<Error>(ModelError::NoSpokenLanguageSpecified.into())?;
         let programming_language = self
             .programming_language
-            .ok_or(Error::NoProgrammingLanguageSpecified)?;
+            .ok_or::<Error>(ModelError::NoProgrammingLanguageSpecified.into())?;
         let lesson_text = self.try_load_lesson_text(&path)?;
         let metadata = self.try_load_metadata(&path)?;
 

@@ -1,7 +1,7 @@
 use crate::{
-    fs::{LazyLoader, TryLoad},
+    fs::{Error as FsError, LazyLoader, TryLoad},
     languages::{programming, spoken},
-    models::LessonData,
+    models::{Error as ModelError, LessonData},
     Error,
 };
 use serde::{Deserialize, Serialize};
@@ -173,7 +173,7 @@ impl WorkshopData {
         );
 
         if self.descriptions.is_empty() {
-            return Err(Error::WorkshopNoDescriptions);
+            return Err(ModelError::WorkshopNoDescriptions.into());
         }
 
         let spoken_language = {
@@ -181,8 +181,11 @@ impl WorkshopData {
             if self.setup_instructions.contains_key(&spoken) {
                 spoken
             } else {
-                *self.setup_instructions.keys().next().ok_or(
-                    Error::WorkshopSpokenLanguageNotFound(spoken.get_name_in_english().to_string()),
+                *self.setup_instructions.keys().next().ok_or::<Error>(
+                    ModelError::WorkshopSpokenLanguageNotFound(
+                        spoken.get_name_in_english().to_string(),
+                    )
+                    .into(),
                 )?
             }
         };
@@ -194,9 +197,12 @@ impl WorkshopData {
         let mut description = self
             .descriptions
             .get(&spoken_language)
-            .ok_or(Error::WorkshopSpokenLanguageNotFound(
-                spoken_language.get_name_in_english().to_string(),
-            ))?
+            .ok_or::<Error>(
+                ModelError::WorkshopSpokenLanguageNotFound(
+                    spoken_language.get_name_in_english().to_string(),
+                )
+                .into(),
+            )?
             .write() // get a write lock on the Arc<RwLock<LazyLoader<String>>>
             .await;
         // try to load the description, if it fails, return the error
@@ -217,7 +223,7 @@ impl WorkshopData {
         );
 
         if self.setup_instructions.is_empty() {
-            return Err(Error::WorkshopNoSetupInstructions);
+            return Err(ModelError::WorkshopNoSetupInstructions.into());
         }
 
         let spoken_language = {
@@ -225,23 +231,31 @@ impl WorkshopData {
             if self.setup_instructions.contains_key(&spoken) {
                 spoken
             } else {
-                *self.setup_instructions.keys().next().ok_or(
-                    Error::WorkshopSpokenLanguageNotFound(spoken.get_name_in_english().to_string()),
+                *self.setup_instructions.keys().next().ok_or::<Error>(
+                    ModelError::WorkshopSpokenLanguageNotFound(
+                        spoken.get_name_in_english().to_string(),
+                    )
+                    .into(),
                 )?
             }
         };
 
         let mut setup = {
-            let spoken = self.setup_instructions.get(&spoken_language).ok_or(
-                Error::WorkshopSpokenLanguageNotFound(
-                    spoken_language.get_name_in_english().to_string(),
-                ),
-            )?;
+            let spoken = self
+                .setup_instructions
+                .get(&spoken_language)
+                .ok_or::<Error>(
+                    ModelError::WorkshopSpokenLanguageNotFound(
+                        spoken_language.get_name_in_english().to_string(),
+                    )
+                    .into(),
+                )?;
 
             if spoken.is_empty() {
-                return Err(Error::WorkshopNoProgrammingLanguagesForSpokenLanguage(
+                return Err(ModelError::WorkshopNoProgrammingLanguagesForSpokenLanguage(
                     spoken_language.get_name_in_english().to_string(),
-                ));
+                )
+                .into());
             }
 
             let programming_language = {
@@ -250,12 +264,12 @@ impl WorkshopData {
                 if spoken.contains_key(&programming) {
                     programming
                 } else {
-                    *spoken
-                        .keys()
-                        .next()
-                        .ok_or(Error::WorkshopProgrammingLanguageNotFound(
+                    *spoken.keys().next().ok_or::<Error>(
+                        ModelError::WorkshopProgrammingLanguageNotFound(
                             programming.get_name().to_string(),
-                        ))?
+                        )
+                        .into(),
+                    )?
                 }
             };
 
@@ -264,11 +278,12 @@ impl WorkshopData {
                 spoken_language, programming_language
             );
 
-            spoken
-                .get(&programming_language)
-                .ok_or(Error::WorkshopProgrammingLanguageNotFound(
+            spoken.get(&programming_language).ok_or::<Error>(
+                ModelError::WorkshopProgrammingLanguageNotFound(
                     programming_language.get_name().to_string(),
-                ))?
+                )
+                .into(),
+            )?
         }
         .write()
         .await;
@@ -293,7 +308,7 @@ impl WorkshopData {
             spoken_language.map_or("Any".to_string(), |s| s.get_name_in_english().to_string())
         );
         if self.metadata.is_empty() {
-            return Err(Error::WorkshopNoMetadata);
+            return Err(ModelError::WorkshopNoMetadata.into());
         }
 
         let spoken_language = {
@@ -301,22 +316,24 @@ impl WorkshopData {
             if self.metadata.contains_key(&spoken) {
                 spoken
             } else {
-                *self
-                    .metadata
-                    .keys()
-                    .next()
-                    .ok_or(Error::WorkshopSpokenLanguageNotFound(
+                *self.metadata.keys().next().ok_or::<Error>(
+                    ModelError::WorkshopSpokenLanguageNotFound(
                         spoken.get_name_in_english().to_string(),
-                    ))?
+                    )
+                    .into(),
+                )?
             }
         };
 
         let mut metadata = self
             .metadata
             .get(&spoken_language)
-            .ok_or(Error::WorkshopSpokenLanguageNotFound(
-                spoken_language.get_name_in_english().to_string(),
-            ))?
+            .ok_or::<Error>(
+                ModelError::WorkshopSpokenLanguageNotFound(
+                    spoken_language.get_name_in_english().to_string(),
+                )
+                .into(),
+            )?
             .write() // get a write lock on the Arc<RwLock<LazyLoader<Workshop>>>
             .await;
         // try to load the metadata, if it fails, return the error
@@ -336,34 +353,36 @@ impl WorkshopData {
         );
 
         if self.lessons_data.is_empty() {
-            return Err(Error::WorkshopNoLessonsData);
+            return Err(ModelError::WorkshopNoLessonsData.into());
         }
 
-        let spoken_language =
-            {
-                let spoken = spoken_language.unwrap_or(self.defaults.spoken_language);
-                if self.lessons_data.contains_key(&spoken) {
-                    spoken
-                } else {
-                    *self.lessons_data.keys().next().ok_or(
-                        Error::WorkshopSpokenLanguageNotFound(
-                            spoken.get_name_in_english().to_string(),
-                        ),
-                    )?
-                }
-            };
+        let spoken_language = {
+            let spoken = spoken_language.unwrap_or(self.defaults.spoken_language);
+            if self.lessons_data.contains_key(&spoken) {
+                spoken
+            } else {
+                *self.lessons_data.keys().next().ok_or::<Error>(
+                    ModelError::WorkshopSpokenLanguageNotFound(
+                        spoken.get_name_in_english().to_string(),
+                    )
+                    .into(),
+                )?
+            }
+        };
 
         let lessons = {
-            let spoken = self.lessons_data.get(&spoken_language).ok_or(
-                Error::WorkshopSpokenLanguageNotFound(
+            let spoken = self.lessons_data.get(&spoken_language).ok_or::<Error>(
+                ModelError::WorkshopSpokenLanguageNotFound(
                     spoken_language.get_name_in_english().to_string(),
-                ),
+                )
+                .into(),
             )?;
 
             if spoken.is_empty() {
-                return Err(Error::WorkshopNoProgrammingLanguagesForSpokenLanguage(
+                return Err(ModelError::WorkshopNoProgrammingLanguagesForSpokenLanguage(
                     spoken_language.get_name_in_english().to_string(),
-                ));
+                )
+                .into());
             }
 
             let programming_language = {
@@ -372,12 +391,12 @@ impl WorkshopData {
                 if spoken.contains_key(&programming) {
                     programming
                 } else {
-                    *spoken
-                        .keys()
-                        .next()
-                        .ok_or(Error::WorkshopProgrammingLanguageNotFound(
+                    *spoken.keys().next().ok_or::<Error>(
+                        ModelError::WorkshopProgrammingLanguageNotFound(
                             programming.get_name().to_string(),
-                        ))?
+                        )
+                        .into(),
+                    )?
                 }
             };
 
@@ -386,11 +405,12 @@ impl WorkshopData {
                 spoken_language, programming_language
             );
 
-            spoken
-                .get(&programming_language)
-                .ok_or(Error::WorkshopProgrammingLanguageNotFound(
+            spoken.get(&programming_language).ok_or::<Error>(
+                ModelError::WorkshopProgrammingLanguageNotFound(
                     programming_language.get_name().to_string(),
-                ))?
+                )
+                .into(),
+            )?
         };
 
         let mut lessons_data: HashMap<String, LessonData> = HashMap::new();
@@ -425,7 +445,7 @@ impl Loader {
 
     fn try_load_descriptions(&self, workshop_dir: &Path) -> Result<DescriptionsMap, Error> {
         let descriptions = std::fs::read_dir(workshop_dir)
-            .map_err(|_| Error::WorkshopDataDirNotFound)?
+            .map_err(|_| FsError::WorkshopDataDirNotFound)?
             .filter_map(|entry| {
                 if let Ok(e) = entry {
                     if let Ok(code) =
@@ -464,7 +484,7 @@ impl Loader {
             let programming_languages: HashMap<programming::Code, Arc<RwLock<LazyLoader<String>>>> =
                 std::fs::read_dir(workshop_dir.join(spoken.to_string()))
                     .map_err(|_| {
-                        Error::WorkshopDataSpokenDirNotFound(
+                        ModelError::WorkshopDataSpokenDirNotFound(
                             spoken.get_name_in_english().to_string(),
                         )
                     })?
@@ -501,7 +521,7 @@ impl Loader {
     fn try_load_license(&self, workshop_dir: &Path) -> Result<LicenseLoader, Error> {
         let license_path = workshop_dir.join("LICENSE");
         if !license_path.exists() {
-            return Err(Error::WorkshopLicenseNotFound(self.name.clone()));
+            return Err(ModelError::WorkshopLicenseNotFound(self.name.clone()).into());
         }
         Ok(Arc::new(RwLock::new(LazyLoader::NotLoaded(license_path))))
     }
@@ -509,7 +529,7 @@ impl Loader {
     fn try_load_defaults(&self, workshop_dir: &Path) -> Result<Defaults, Error> {
         let defaults_path = workshop_dir.join("defaults.yaml");
         if !defaults_path.exists() {
-            return Err(Error::WorkshopDefaultsNotFound(self.name.clone()));
+            return Err(ModelError::WorkshopDefaultsNotFound(self.name.clone()).into());
         }
         let defaults = std::fs::read_to_string(defaults_path)?;
         Ok(serde_yaml::from_str(&defaults)?)
@@ -517,7 +537,7 @@ impl Loader {
 
     fn try_load_metadata(&self, workshop_dir: &Path) -> Result<MetadataMap, Error> {
         let metadata = std::fs::read_dir(workshop_dir)
-            .map_err(|_| Error::WorkshopDataDirNotFound)?
+            .map_err(|_| FsError::WorkshopDataDirNotFound)?
             .filter_map(|entry| {
                 if let Ok(e) = entry {
                     if let Ok(code) =
@@ -552,7 +572,9 @@ impl Loader {
                 Vec<Arc<RwLock<LazyLoader<LessonData>>>>,
             > = std::fs::read_dir(workshop_dir.join(spoken.to_string()))
                 .map_err(|_| {
-                    Error::WorkshopDataSpokenDirNotFound(spoken.get_name_in_english().to_string())
+                    ModelError::WorkshopDataSpokenDirNotFound(
+                        spoken.get_name_in_english().to_string(),
+                    )
                 })?
                 .filter_map(|entry| {
                     if let Ok(e) = entry {
@@ -562,7 +584,7 @@ impl Loader {
                             let lessons_data: Vec<Arc<RwLock<LazyLoader<LessonData>>>> =
                                 std::fs::read_dir(e.path())
                                     .map_err(|_| {
-                                        Error::WorkshopDataProgrammingDirNotFound(
+                                        ModelError::WorkshopDataProgrammingDirNotFound(
                                             code.get_name().to_string(),
                                         )
                                     })
@@ -596,12 +618,15 @@ impl Loader {
 
     pub fn try_load(&self) -> Result<WorkshopData, Error> {
         let name = self.name.clone();
-        let path = self.path.clone().ok_or(Error::WorkshopDataDirNotFound)?;
+        let path = self
+            .path
+            .clone()
+            .ok_or::<Error>(FsError::WorkshopDataDirNotFound.into())?;
         let workshop_path = path.join(&name);
         workshop_path
             .exists()
             .then_some(())
-            .ok_or(Error::WorkshopNotFound(name.clone()))?;
+            .ok_or::<Error>(ModelError::WorkshopNotFound(name.clone()).into())?;
 
         let defaults = self.try_load_defaults(&workshop_path)?;
         let descriptions = self.try_load_descriptions(&workshop_path)?;
