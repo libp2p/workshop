@@ -8,12 +8,12 @@ The workshop app follows a strict state machine illustrated below.
             │ Nil │
             └──┬──┘
                │
-            <Config>
+        <LoadWorkshops>
                │
                │
                │
                │                             ┌──────────────────────────────────────────────────────┐
- ╟──<quit>──┐  │  ┌───────────<back>─────────┤ SetProgrammingLanguageDefault (programming_language) │
+╟──<quit>───┐  │  ┌─────<LoadWorkshops>──────┤ SetProgrammingLanguageDefault (programming_language) │
             │  │  │                          └──────────────────────────────────────────────────────┘
             │  │  │                                                ▲
             │  │  │                                                │
@@ -26,37 +26,37 @@ The workshop app follows a strict state machine illustrated below.
  │                             ├────<ChangeProgrammingLanguage>────┘
  │                             │
  │                             │                      ┌────────────────────────────┐
- │                             ├─────<GetLicense>────>│                            │
+ │                             ├────<ShowLicense>────>│                            │
  │ SelectWorkshop (workshops)  │                      │ ShowLicense (license_text) │
- │                             │<───────<Back>────────┤                            │
+ │                             │<───<LoadWorkshops>───┤                            │
  │                             │                      └────────────────────────────┘
  │                             │
  │                             ├────<ChangeSpokenLanguage>─────────┐
  └─────────────┬───────────────┘                                   ▼
             ▲  │  ▲                            ┌─────────────────────────────────────────┐
             │  │  │                            │ SelectSpokenLanguage (spoken_languages) │
-         <back>│  │                            └───────────────────┬─────────────────────┘
+<LoadWorkshops>│  │                            └───────────────────┬─────────────────────┘
             │  │  │                                                │
             │  │  │                                       <SetSpokenLanguage>
             │  │  │                                                │
             │  │  │                                                ▼
             │  │  │                           ┌────────────────────────────────────────────┐
-            │  │  └───────────<back>──────────┤ SetSpokenLanguageDefault (spoken_language) │
+            │  │  └───────<LoadWorkshops>─────┤ SetSpokenLanguageDefault (spoken_language) │
             │  │                              └────────────────────────────────────────────┘
-         <SetWorkshop>
-            │  │
-            │  ▼
-   ┌────────┴───────────────┐
+            │<SetWorkshop>
+╟─<quit>─┐  │  │
+         │  │  ▼
+   ┌─────┴──┴───────────────┐
    │ SelectLesson (lessons) │
    └───────────┬────────────┘
             ▲  │  ▲                                          ┌────────────────┐
-            │  │  └──────────────────<back>──────────────────┤ LessonComplete │
-         <back>│                                             └────────────────┘
+            │  │  └────────────────<LoadLessons>─────────────┤ LessonComplete │
+  <LoadLessons>│                                             └────────────────┘
             │  │                                                     ▲
-            │  │                                                     │
-            │  │                                                 [Complete]
-            │  ▼                                                     │
-  ┌─────────┴────────────────┐                       ┌───────────────┴────────────────┐
+            │<SetLesson>                                             │
+╟─<quit>─┐  │  │                                                 [Complete]
+         │  │  ▼                                                     │
+  ┌──────┴──┴────────────────┐                       ┌───────────────┴────────────────┐
   │ ShowLesson (lesson_text) ├─────<CheckLesson>────>│ CheckLesson (task, log_handle) │
   └──────────────────────────┘                       └───────────────┬────────────────┘
                ▲                                                     │
@@ -64,6 +64,6 @@ The workshop app follows a strict state machine illustrated below.
                │                                                     │
                │                                                     ▼
                │                                            ┌──────────────────┐
-               └─────────────────────<back>─────────────────┤ LessonIncomplete │
+               └───────────────────<SetLesson>──────────────┤ LessonIncomplete │
                                                             └──────────────────┘
 ```
