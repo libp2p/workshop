@@ -1,8 +1,10 @@
-use crate::{Error, Message};
+use crate::Error;
 use std::{
     fmt,
     fs::{File, OpenOptions},
     io::Write,
+    path::Path,
+    sync::Mutex,
 };
 use tokio::sync::mpsc::{self, Receiver, Sender};
 use tracing::{
@@ -15,8 +17,8 @@ use tracing_subscriber::{
 
 // Custom tracing layer to send log events over mpsc
 struct MpscLayer {
-    sender: Sender<Message>,
-    file: Option<File>,
+    sender: Sender<String>,
+    file: Option<Mutex<File>>,
 }
 
 // Implement a visitor to extract fields from the event
@@ -40,15 +42,21 @@ where
         let mut visitor = FieldVisitor { message: None };
         event.record(&mut visitor);
 
+        // get the log message and format it
         let level = *event.metadata().level();
         let message = visitor.message.unwrap_or_default();
         let msg = format!("[{}]: {}", level, message);
 
-        let mut f = self.file.as_ref().unwrap().try_clone().unwrap();
-        writeln!(f, "{msg}").unwrap();
-        f.flush().unwrap();
+        // if a file is provided, write the log message to it
+        if let Some(mutex) = &self.file {
+            if let Ok(mut file) = mutex.lock() {
+                writeln!(file, "{msg}").unwrap();
+                let _ = file.flush();
+            }
+        }
 
-        let _ = self.sender.try_send(Message::Log { msg });
+        // send the log message over the mpsc channel
+        let _ = self.sender.try_send(msg);
     }
 }
 
@@ -58,15 +66,19 @@ pub struct Log;
 
 impl Log {
     /// Starts the logger and returns the task handle and receiver for the log messages.
-    pub fn init() -> Result<Receiver<Message>, Error> {
+    pub fn init<T: AsRef<Path>>(log: Option<T>) -> Result<Receiver<String>, Error> {
         let (sender, receiver) = mpsc::channel(16);
-        let file = Some(
-            OpenOptions::new()
-                .write(true)
-                .create(true)
-                .truncate(true)
-                .open("log.txt")?,
-        );
+        let file = if let Some(path) = log {
+            Some(Mutex::new(
+                OpenOptions::new()
+                    .write(true)
+                    .create(true)
+                    .truncate(true)
+                    .open(path.as_ref())?,
+            ))
+        } else {
+            None
+        };
 
         let filter = EnvFilter::from_default_env();
         let layer = MpscLayer { sender, file }.with_filter(filter);

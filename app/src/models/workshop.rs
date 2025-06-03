@@ -1,4 +1,8 @@
-use crate::{Error, LazyLoader, LessonData, TryLoad};
+use crate::{
+    fs::{LazyLoader, TryLoad},
+    models::LessonData,
+    Error,
+};
 use languages::{programming, spoken};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -44,16 +48,16 @@ impl TryLoad for String {
     }
 }
 
-pub(crate) type SetupInstructionsMap =
+pub type SetupInstructionsMap =
     HashMap<spoken::Code, HashMap<programming::Code, Arc<RwLock<LazyLoader<String>>>>>;
-pub(crate) type DescriptionsMap = HashMap<spoken::Code, Arc<RwLock<LazyLoader<String>>>>;
-pub(crate) type LicenseLoader = Arc<RwLock<LazyLoader<String>>>;
-pub(crate) type MetadataMap = HashMap<spoken::Code, Arc<RwLock<LazyLoader<Workshop>>>>;
-pub(crate) type LessonsDataMap =
+pub type DescriptionsMap = HashMap<spoken::Code, Arc<RwLock<LazyLoader<String>>>>;
+pub type LicenseLoader = Arc<RwLock<LazyLoader<String>>>;
+pub type MetadataMap = HashMap<spoken::Code, Arc<RwLock<LazyLoader<Workshop>>>>;
+pub type LessonsDataMap =
     HashMap<spoken::Code, HashMap<programming::Code, Vec<Arc<RwLock<LazyLoader<LessonData>>>>>>;
 
 #[derive(Clone, Debug)]
-pub(crate) struct WorkshopData {
+pub struct WorkshopData {
     name: String,
     path: PathBuf,
     defaults: Defaults,
@@ -163,7 +167,26 @@ impl WorkshopData {
         &self,
         spoken_language: Option<spoken::Code>,
     ) -> Result<String, Error> {
-        let spoken_language = spoken_language.unwrap_or(self.defaults.spoken_language);
+        info!(
+            "(engine) WorkshopData::get_description({})",
+            spoken_language.map_or("Any".to_string(), |s| s.get_name_in_english().to_string())
+        );
+
+        if self.descriptions.is_empty() {
+            return Err(Error::WorkshopNoDescriptions);
+        }
+
+        let spoken_language = {
+            let spoken = spoken_language.unwrap_or(self.defaults.spoken_language);
+            if self.setup_instructions.contains_key(&spoken) {
+                spoken
+            } else {
+                *self.setup_instructions.keys().next().ok_or(
+                    Error::WorkshopSpokenLanguageNotFound(spoken.get_name_in_english().to_string()),
+                )?
+            }
+        };
+
         info!(
             "(engine) WorkshopData::get_description: {}",
             spoken_language
@@ -187,21 +210,69 @@ impl WorkshopData {
         spoken_language: Option<spoken::Code>,
         programming_language: Option<programming::Code>,
     ) -> Result<String, Error> {
-        let spoken_language = spoken_language.unwrap_or(self.defaults.spoken_language);
-        let programming_language =
-            programming_language.unwrap_or(self.defaults.programming_language);
-        let mut setup = self
-            .setup_instructions
-            .get(&spoken_language)
-            .ok_or(Error::WorkshopSpokenLanguageNotFound(
-                spoken_language.get_name_in_english().to_string(),
-            ))?
-            .get(&programming_language)
-            .ok_or(Error::WorkshopProgrammingLanguageNotFound(
-                programming_language.get_name().to_string(),
-            ))?
-            .write() // get a write lock on the Arc<RwLock<LazyLoader<String>>>
-            .await;
+        info!(
+            "(engine) WorkshopData::get_setup_instructions({}, {})",
+            spoken_language.map_or("Any".to_string(), |s| s.get_name_in_english().to_string()),
+            programming_language.map_or("Any".to_string(), |p| p.get_name().to_string())
+        );
+
+        if self.setup_instructions.is_empty() {
+            return Err(Error::WorkshopNoSetupInstructions);
+        }
+
+        let spoken_language = {
+            let spoken = spoken_language.unwrap_or(self.defaults.spoken_language);
+            if self.setup_instructions.contains_key(&spoken) {
+                spoken
+            } else {
+                *self.setup_instructions.keys().next().ok_or(
+                    Error::WorkshopSpokenLanguageNotFound(spoken.get_name_in_english().to_string()),
+                )?
+            }
+        };
+
+        let mut setup = {
+            let spoken = self.setup_instructions.get(&spoken_language).ok_or(
+                Error::WorkshopSpokenLanguageNotFound(
+                    spoken_language.get_name_in_english().to_string(),
+                ),
+            )?;
+
+            if spoken.is_empty() {
+                return Err(Error::WorkshopNoProgrammingLanguagesForSpokenLanguage(
+                    spoken_language.get_name_in_english().to_string(),
+                ));
+            }
+
+            let programming_language = {
+                let programming =
+                    programming_language.unwrap_or(self.defaults.programming_language);
+                if spoken.contains_key(&programming) {
+                    programming
+                } else {
+                    *spoken
+                        .keys()
+                        .next()
+                        .ok_or(Error::WorkshopProgrammingLanguageNotFound(
+                            programming.get_name().to_string(),
+                        ))?
+                }
+            };
+
+            info!(
+                "(engine) WorkshopData::get_setup_instructions: {} + {}",
+                spoken_language, programming_language
+            );
+
+            spoken
+                .get(&programming_language)
+                .ok_or(Error::WorkshopProgrammingLanguageNotFound(
+                    programming_language.get_name().to_string(),
+                ))?
+        }
+        .write()
+        .await;
+
         // try to load the setup instructions, if it fails, return the error
         setup.try_load().await.cloned()
     }
@@ -217,7 +288,29 @@ impl WorkshopData {
         &self,
         spoken_language: Option<spoken::Code>,
     ) -> Result<Workshop, Error> {
-        let spoken_language = spoken_language.unwrap_or(self.defaults.spoken_language);
+        info!(
+            "(engine) WorkshopData::get_metadata({})",
+            spoken_language.map_or("Any".to_string(), |s| s.get_name_in_english().to_string())
+        );
+        if self.metadata.is_empty() {
+            return Err(Error::WorkshopNoMetadata);
+        }
+
+        let spoken_language = {
+            let spoken = spoken_language.unwrap_or(self.defaults.spoken_language);
+            if self.metadata.contains_key(&spoken) {
+                spoken
+            } else {
+                *self
+                    .metadata
+                    .keys()
+                    .next()
+                    .ok_or(Error::WorkshopSpokenLanguageNotFound(
+                        spoken.get_name_in_english().to_string(),
+                    ))?
+            }
+        };
+
         let mut metadata = self
             .metadata
             .get(&spoken_language)
@@ -236,19 +329,70 @@ impl WorkshopData {
         spoken_language: Option<spoken::Code>,
         programming_language: Option<programming::Code>,
     ) -> Result<HashMap<String, LessonData>, Error> {
-        let spoken_language = spoken_language.unwrap_or(self.defaults.spoken_language);
-        let programming_language =
-            programming_language.unwrap_or(self.defaults.programming_language);
-        let lessons = self
-            .lessons_data
-            .get(&spoken_language)
-            .ok_or(Error::WorkshopSpokenLanguageNotFound(
-                spoken_language.get_name_in_english().to_string(),
-            ))?
-            .get(&programming_language)
-            .ok_or(Error::WorkshopProgrammingLanguageNotFound(
-                programming_language.get_name().to_string(),
-            ))?;
+        info!(
+            "(engine) WorkshopData::get_lessons_data({}, {})",
+            spoken_language.map_or("Any".to_string(), |s| s.get_name_in_english().to_string()),
+            programming_language.map_or("Any".to_string(), |p| p.get_name().to_string())
+        );
+
+        if self.lessons_data.is_empty() {
+            return Err(Error::WorkshopNoLessonsData);
+        }
+
+        let spoken_language =
+            {
+                let spoken = spoken_language.unwrap_or(self.defaults.spoken_language);
+                if self.lessons_data.contains_key(&spoken) {
+                    spoken
+                } else {
+                    *self.lessons_data.keys().next().ok_or(
+                        Error::WorkshopSpokenLanguageNotFound(
+                            spoken.get_name_in_english().to_string(),
+                        ),
+                    )?
+                }
+            };
+
+        let lessons = {
+            let spoken = self.lessons_data.get(&spoken_language).ok_or(
+                Error::WorkshopSpokenLanguageNotFound(
+                    spoken_language.get_name_in_english().to_string(),
+                ),
+            )?;
+
+            if spoken.is_empty() {
+                return Err(Error::WorkshopNoProgrammingLanguagesForSpokenLanguage(
+                    spoken_language.get_name_in_english().to_string(),
+                ));
+            }
+
+            let programming_language = {
+                let programming =
+                    programming_language.unwrap_or(self.defaults.programming_language);
+                if spoken.contains_key(&programming) {
+                    programming
+                } else {
+                    *spoken
+                        .keys()
+                        .next()
+                        .ok_or(Error::WorkshopProgrammingLanguageNotFound(
+                            programming.get_name().to_string(),
+                        ))?
+                }
+            };
+
+            info!(
+                "(engine) WorkshopData::get_lessons_data: {} + {}",
+                spoken_language, programming_language
+            );
+
+            spoken
+                .get(&programming_language)
+                .ok_or(Error::WorkshopProgrammingLanguageNotFound(
+                    programming_language.get_name().to_string(),
+                ))?
+        };
+
         let mut lessons_data: HashMap<String, LessonData> = HashMap::new();
         for lesson in lessons.iter() {
             let lesson_data = lesson.write().await.try_load().await.cloned()?;
@@ -259,20 +403,20 @@ impl WorkshopData {
 }
 
 #[derive(Clone, Debug, Default)]
-pub(crate) struct Loader {
+pub struct Loader {
     name: String,
     path: Option<PathBuf>,
 }
 
 impl Loader {
-    pub(crate) fn new(name: &str) -> Self {
+    pub fn new(name: &str) -> Self {
         Self {
             name: name.to_string(),
             ..Default::default()
         }
     }
 
-    pub(crate) fn path(self, path: &Path) -> Self {
+    pub fn path(self, path: &Path) -> Self {
         Self {
             path: Some(path.to_path_buf()),
             ..self
@@ -287,6 +431,11 @@ impl Loader {
                     if let Ok(code) =
                         spoken::Code::try_from(e.file_name().to_string_lossy().as_ref())
                     {
+                        info!(
+                            "(engine) Found setup description under {}: {}",
+                            workshop_dir.display(),
+                            code
+                        );
                         let description_path = e.path().join("description.md");
                         Some((
                             code,
@@ -323,6 +472,12 @@ impl Loader {
                         if let Ok(e) = entry {
                             let name = e.file_name().to_string_lossy().to_string();
                             if let Ok(code) = programming::Code::try_from(name.as_str()) {
+                                info!(
+                                    "(engine) Found setup instructions under {}: {} + {}",
+                                    workshop_dir.display(),
+                                    spoken,
+                                    code
+                                );
                                 let setup_path = e.path().join("setup.md");
                                 Some((
                                     code,
@@ -354,7 +509,7 @@ impl Loader {
     fn try_load_defaults(&self, workshop_dir: &Path) -> Result<Defaults, Error> {
         let defaults_path = workshop_dir.join("defaults.yaml");
         if !defaults_path.exists() {
-            return Err(Error::WorkshopLicenseNotFound(self.name.clone()));
+            return Err(Error::WorkshopDefaultsNotFound(self.name.clone()));
         }
         let defaults = std::fs::read_to_string(defaults_path)?;
         Ok(serde_yaml::from_str(&defaults)?)
@@ -439,7 +594,7 @@ impl Loader {
         Ok(lessons_data)
     }
 
-    pub(crate) fn try_load(&self) -> Result<WorkshopData, Error> {
+    pub fn try_load(&self) -> Result<WorkshopData, Error> {
         let name = self.name.clone();
         let path = self.path.clone().ok_or(Error::WorkshopDataDirNotFound)?;
         let workshop_path = path.join(&name);

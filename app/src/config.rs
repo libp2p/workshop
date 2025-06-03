@@ -1,6 +1,5 @@
 use crate::Error;
 use directories::ProjectDirs;
-use engine::Config;
 use languages::{programming, spoken};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -10,7 +9,7 @@ const DEFAULT_MAX_LOG_LINES: usize = 1000;
 
 /// Represents the application configuration
 #[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct LocalConfig {
+pub struct Config {
     config_dir: PathBuf,
     data_dir: PathBuf,
     max_log_lines: Option<usize>,
@@ -20,7 +19,7 @@ pub struct LocalConfig {
     pwd: PathBuf,
 }
 
-impl LocalConfig {
+impl Config {
     /// Load the Config from a file, createing it if necessary
     pub fn load() -> Result<Self, Error> {
         // Get the application data directory
@@ -43,13 +42,12 @@ impl LocalConfig {
         let config_path = config_dir.join("config.yaml");
         if config_path.exists() {
             info!("Loading config from: {}", config_path.display());
-            let mut config: LocalConfig =
-                serde_yaml::from_reader(std::fs::File::open(&config_path)?)?;
+            let mut config: Config = serde_yaml::from_reader(std::fs::File::open(&config_path)?)?;
             config.pwd = pwd.clone();
             Ok(config)
         } else {
             info!("Creating config at: {}", config_path.display());
-            let config = LocalConfig {
+            let config = Config {
                 config_dir,
                 data_dir,
                 max_log_lines: Some(DEFAULT_MAX_LOG_LINES),
@@ -102,26 +100,24 @@ impl LocalConfig {
         info!("Config saved to: {}", config_path.display());
         Ok(())
     }
-}
 
-impl Config for LocalConfig {
     /// Get the path to the application data directory
-    fn data_dir(&self) -> &Path {
+    pub fn data_dir(&self) -> &Path {
         self.data_dir.as_path()
     }
 
     /// Get the present working directory
-    fn pwd(&self) -> &Path {
+    pub fn pwd(&self) -> &Path {
         self.pwd.as_path()
     }
 
     /// Get the preferred spoken language
-    fn spoken_language(&self) -> Option<spoken::Code> {
+    pub fn spoken_language(&self) -> Option<spoken::Code> {
         self.spoken_language
     }
 
     /// Get the preferred programming language
-    fn programming_language(&self) -> Option<programming::Code> {
+    pub fn programming_language(&self) -> Option<programming::Code> {
         self.programming_language
     }
 }

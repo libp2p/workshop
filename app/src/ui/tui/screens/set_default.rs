@@ -1,9 +1,9 @@
 use crate::{
-    ui::tui::{Event as UiEvent, Screen},
+    ui::tui::{self, screens, Screen},
     Error,
 };
-use crossterm::event::{Event, KeyCode};
-use engine::Message;
+use crossterm::event::{self, KeyCode};
+use languages::spoken;
 use ratatui::{
     buffer::Buffer,
     layout::{Alignment, Constraint, Flex, Layout, Offset, Rect},
@@ -12,14 +12,11 @@ use ratatui::{
         Block, Borders, Clear, List, ListState, Padding, Paragraph, StatefulWidget, Widget, Wrap,
     },
 };
-use std::time::Duration;
 use tokio::sync::mpsc::Sender;
 use tracing::info;
 
 #[derive(Clone, Debug)]
 pub struct SetDefault<'a> {
-    /// the value to set as default
-    event: UiEvent,
     /// the cached rect from last render
     area: Rect,
     /// the cached calculated rect
@@ -28,6 +25,10 @@ pub struct SetDefault<'a> {
     list: List<'a>,
     /// programming language list state
     list_state: ListState,
+    /// event to send if they select "yes"
+    event: tui::Event,
+    /// the currently selected spoken language
+    spoken_language: Option<spoken::Code>,
 }
 
 impl SetDefault<'_> {
@@ -53,17 +54,26 @@ impl SetDefault<'_> {
             .highlight_symbol("> ");
 
         Self {
-            event: UiEvent::Back,
             area: Rect::default(),
             centered: Rect::default(),
             list,
             list_state,
+            event: tui::Event::Show(screens::Screens::Workshops),
+            spoken_language: None,
         }
     }
 
-    // set the value to return if they select yet
-    fn set_value(&mut self, event: UiEvent) {
+    async fn set_spoken_language(
+        &mut self,
+        spoken_language: Option<spoken::Code>,
+    ) -> Result<(), Error> {
+        self.spoken_language = spoken_language;
+        Ok(())
+    }
+
+    async fn set_event(&mut self, event: tui::Event) -> Result<(), Error> {
         self.event = event;
+        Ok(())
     }
 
     fn recalculate_rect(&mut self, area: Rect) {
@@ -106,64 +116,72 @@ impl SetDefault<'_> {
 
         Widget::render(keys, area, buf);
     }
-}
 
-#[async_trait::async_trait]
-impl Screen for SetDefault<'_> {
-    /// handle an input event
-    async fn handle_event(
+    /// handle UI events
+    pub async fn handle_ui_event(
         &mut self,
-        evt: Event,
-        _to_engine: Sender<Message>,
-    ) -> Result<Option<UiEvent>, Error> {
-        if let Event::Key(key) = evt {
+        event: tui::Event,
+        _to_ui: Sender<screens::Event>,
+    ) -> Result<(), Error> {
+        match event {
+            tui::Event::SpokenLanguage(spoken_language) => {
+                info!("Spoken language set: {:?}", spoken_language);
+                self.set_spoken_language(spoken_language).await?;
+            }
+            tui::Event::SetEvent(event) => {
+                info!("Setting event: {:?}", event);
+                self.set_event(*event).await?;
+            }
+            _ => {
+                info!("Ignoring UI event: {:?}", event);
+            }
+        }
+        Ok(())
+    }
+
+    /// handle input events
+    pub async fn handle_input_event(
+        &mut self,
+        event: event::Event,
+        to_ui: Sender<screens::Event>,
+    ) -> Result<(), Error> {
+        if let event::Event::Key(key) = event {
             match key.code {
                 KeyCode::Char('j') | KeyCode::Down => self.list_state.select_next(),
                 KeyCode::Char('k') | KeyCode::Up => self.list_state.select_previous(),
                 KeyCode::Enter => {
                     match self.list_state.selected() {
-                        Some(0) => return Ok(Some(self.event.clone())),
-                        Some(_) | None => return Ok(Some(UiEvent::Back)),
+                        Some(0) => {
+                            info!("Setting default");
+                            to_ui.send(self.event.clone().into()).await?;
+                        }
+                        Some(_) | None => {
+                            info!("Back to previous screen");
+                            to_ui.send(tui::Event::LoadWorkshops.into()).await?;
+                        }
                     };
                 }
                 _ => {}
             }
         }
-        Ok(None)
+        Ok(())
     }
+}
 
-    async fn handle_message(
+#[async_trait::async_trait]
+impl Screen for SetDefault<'_> {
+    async fn handle_event(
         &mut self,
-        msg: Message,
-        _to_engine: Sender<Message>,
-    ) -> Result<Option<UiEvent>, Error> {
-        match msg {
-            Message::SetProgrammingLanguageDefault {
-                programming_language,
-            } => {
-                info!(
-                    "Set default programming language?: {:?}",
-                    programming_language
-                );
-                self.set_value(UiEvent::SetProgrammingLanguageDefault {
-                    programming_language,
-                });
-            }
-            Message::SetSpokenLanguageDefault { spoken_language } => {
-                info!("Set spoken language?: {:?}", spoken_language);
-                self.set_value(UiEvent::SetSpokenLanguageDefault { spoken_language });
-            }
-            _ => {}
-        }
-        Ok(None)
-    }
-
-    fn render_screen(
-        &mut self,
-        area: Rect,
-        buf: &mut Buffer,
-        _last_frame_duration: Duration,
+        event: screens::Event,
+        to_ui: Sender<screens::Event>,
     ) -> Result<(), Error> {
+        match event {
+            screens::Event::Input(input_event) => self.handle_input_event(input_event, to_ui).await,
+            screens::Event::Ui(ui_event) => self.handle_ui_event(ui_event, to_ui).await,
+        }
+    }
+
+    fn render_screen(&mut self, area: Rect, buf: &mut Buffer) -> Result<(), Error> {
         self.recalculate_rect(area);
 
         // clear area around the popup

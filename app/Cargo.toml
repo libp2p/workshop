@@ -13,7 +13,6 @@ path = "src/bin/workshop.rs"
 
 [dependencies]
 # local crates
-engine.workspace = true
 languages.workspace = true
 
 # external crates

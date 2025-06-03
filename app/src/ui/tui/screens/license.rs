@@ -1,9 +1,9 @@
 use crate::{
-    ui::tui::{widgets::ScrollText, Event as UiEvent, Screen},
+    ui::tui::{self, screens, widgets::ScrollText, Screen},
     Error,
 };
-use crossterm::event::{Event, KeyCode};
-use engine::Message;
+use crossterm::event::{self, KeyCode};
+use languages::spoken;
 use ratatui::{
     buffer::Buffer,
     layout::{Alignment, Constraint, Flex, Layout, Offset, Rect},
@@ -11,7 +11,6 @@ use ratatui::{
     text::Line,
     widgets::{Block, Borders, Clear, Padding, Paragraph, StatefulWidget, Widget, Wrap},
 };
-use std::time::Duration;
 use tokio::sync::mpsc::Sender;
 use tracing::info;
 
@@ -25,12 +24,23 @@ pub struct License<'a> {
     centered: Rect,
     /// scroll text widget
     st: ScrollText<'a>,
+    /// the currently selected spoken language
+    spoken_language: Option<spoken::Code>,
 }
 
 impl License<'_> {
     /// set the license text
-    pub fn set_license(&mut self, text: String) {
+    pub async fn set_license(&mut self, text: String) -> Result<(), Error> {
         self.text = text;
+        Ok(())
+    }
+
+    async fn set_spoken_language(
+        &mut self,
+        spoken_language: Option<spoken::Code>,
+    ) -> Result<(), Error> {
+        self.spoken_language = spoken_language;
+        Ok(())
     }
 
     fn recalculate_rect(&mut self, area: Rect) {
@@ -85,48 +95,66 @@ impl License<'_> {
 
         Widget::render(keys, area, buf);
     }
-}
 
-#[async_trait::async_trait]
-impl Screen for License<'_> {
-    /// handle an input event
-    async fn handle_event(
+    /// handle UI events
+    pub async fn handle_ui_event(
         &mut self,
-        evt: Event,
-        _to_engine: Sender<Message>,
-    ) -> Result<Option<UiEvent>, Error> {
-        if let Event::Key(key) = evt {
+        event: tui::Event,
+        _to_ui: Sender<screens::Event>,
+    ) -> Result<(), Error> {
+        match event {
+            tui::Event::SpokenLanguage(spoken_language) => {
+                info!("Spoken language set: {:?}", spoken_language);
+                self.set_spoken_language(spoken_language).await?;
+            }
+            tui::Event::SetLicense(text) => {
+                info!("Setting license text");
+                self.set_license(text).await?;
+            }
+            _ => {
+                info!("Ignoring UI event: {:?}", event);
+            }
+        }
+        Ok(())
+    }
+
+    /// handle input events
+    pub async fn handle_input_event(
+        &mut self,
+        event: event::Event,
+        to_ui: Sender<screens::Event>,
+    ) -> Result<(), Error> {
+        if let event::Event::Key(key) = event {
             match key.code {
                 KeyCode::PageUp => self.st.scroll_top(),
                 KeyCode::PageDown => self.st.scroll_bottom(),
-                KeyCode::Char('b') | KeyCode::Esc => return Ok(Some(UiEvent::Back)),
+                KeyCode::Char('b') | KeyCode::Esc => {
+                    info!("Back to previous screen");
+                    to_ui.send(tui::Event::LoadWorkshops.into()).await?;
+                }
                 KeyCode::Char('j') | KeyCode::Down => self.st.scroll_down(),
                 KeyCode::Char('k') | KeyCode::Up => self.st.scroll_up(),
                 _ => {}
             }
         }
-        Ok(None)
+        Ok(())
     }
+}
 
-    async fn handle_message(
+#[async_trait::async_trait]
+impl Screen for License<'_> {
+    async fn handle_event(
         &mut self,
-        msg: Message,
-        _to_engine: Sender<Message>,
-    ) -> Result<Option<UiEvent>, Error> {
-        if let Message::ShowLicense { text } = msg {
-            info!("(ui) setting license text in show license screen");
-            self.set_license(text.to_string());
-            return Ok(Some(UiEvent::ShowLicense));
-        }
-        Ok(None)
-    }
-
-    fn render_screen(
-        &mut self,
-        area: Rect,
-        buf: &mut Buffer,
-        _last_frame_duration: Duration,
+        event: screens::Event,
+        to_ui: Sender<screens::Event>,
     ) -> Result<(), Error> {
+        match event {
+            screens::Event::Input(input_event) => self.handle_input_event(input_event, to_ui).await,
+            screens::Event::Ui(ui_event) => self.handle_ui_event(ui_event, to_ui).await,
+        }
+    }
+
+    fn render_screen(&mut self, area: Rect, buf: &mut Buffer) -> Result<(), Error> {
         self.recalculate_rect(area);
 
         // clear area around the popup

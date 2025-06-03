@@ -1,4 +1,7 @@
-use crate::{Error, LazyLoader, TryLoad};
+use crate::{
+    fs::{LazyLoader, TryLoad},
+    Error,
+};
 use languages::{programming, spoken};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -47,11 +50,11 @@ impl TryLoad for Lesson {
     }
 }
 
-pub(crate) type Metadata = Arc<RwLock<LazyLoader<Lesson>>>;
-pub(crate) type LessonText = Arc<RwLock<LazyLoader<String>>>;
+pub type Metadata = Arc<RwLock<LazyLoader<Lesson>>>;
+pub type LessonText = Arc<RwLock<LazyLoader<String>>>;
 
 #[derive(Clone, Debug)]
-pub(crate) struct LessonData {
+pub struct LessonData {
     name: String,
     path: PathBuf,
     spoken_language: spoken::Code,
@@ -138,7 +141,7 @@ impl TryLoad for LessonData {
 }
 
 #[derive(Clone, Debug, Default)]
-pub(crate) struct Loader {
+pub struct Loader {
     name: String,
     path: Option<PathBuf>,
     spoken_language: Option<spoken::Code>,
@@ -146,28 +149,28 @@ pub(crate) struct Loader {
 }
 
 impl Loader {
-    pub(crate) fn new(name: &str) -> Self {
+    pub fn new(name: &str) -> Self {
         Self {
             name: name.to_string(),
             ..Default::default()
         }
     }
 
-    pub(crate) fn path(self, path: &Path) -> Self {
+    pub fn path(self, path: &Path) -> Self {
         Self {
             path: Some(path.to_path_buf()),
             ..self
         }
     }
 
-    pub(crate) fn spoken_language(self, spoken_language: spoken::Code) -> Self {
+    pub fn spoken_language(self, spoken_language: spoken::Code) -> Self {
         Self {
             spoken_language: Some(spoken_language),
             ..self
         }
     }
 
-    pub(crate) fn programming_language(self, programming_language: programming::Code) -> Self {
+    pub fn programming_language(self, programming_language: programming::Code) -> Self {
         Self {
             programming_language: Some(programming_language),
             ..self
@@ -192,7 +195,7 @@ impl Loader {
         Ok(Arc::new(RwLock::new(LazyLoader::NotLoaded(metadata_path))))
     }
 
-    pub(crate) fn try_load(&self) -> Result<LessonData, Error> {
+    pub fn try_load(&self) -> Result<LessonData, Error> {
         let name = self.name.clone();
         let path = self.path.clone().ok_or(Error::LessonDataDirNotFound)?;
         path.exists()

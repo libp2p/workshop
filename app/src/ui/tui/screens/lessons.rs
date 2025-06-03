@@ -1,17 +1,17 @@
 use crate::{
-    ui::tui::{widgets::ScrollText, Event as UiEvent, Screen},
+    models::{Lesson, LessonData},
+    ui::tui::{self, screens, widgets::ScrollText, Screen},
     Error,
 };
-use crossterm::event::{Event, KeyCode};
-use engine::{Lesson, Message};
+use crossterm::event::{self, KeyCode};
 use languages::{programming, spoken};
 use ratatui::{
     buffer::Buffer,
     layout::{Alignment, Constraint, Flex, Layout, Rect},
-    style::{Color, Modifier, Style},
+    style::{Color, Style},
     widgets::{Block, Borders, List, ListState, Padding, Paragraph, StatefulWidget, Widget, Wrap},
 };
-use std::{collections::HashMap, time::Duration};
+use std::collections::HashMap;
 use tokio::sync::mpsc::Sender;
 use tracing::info;
 
@@ -25,7 +25,9 @@ enum FocusedView {
 #[derive(Clone, Debug, Default)]
 pub struct Lessons<'a> {
     /// the lesson data
-    lessons: HashMap<String, Lesson>,
+    lessons: HashMap<String, LessonData>,
+    /// the selected lesson
+    lesson: Option<Lesson>,
     /// the lesson texts
     lesson_texts: HashMap<String, String>,
     /// the cached list
@@ -44,17 +46,8 @@ pub struct Lessons<'a> {
 
 impl Lessons<'_> {
     /// set the lessons
-    fn set_lessons(
-        &mut self,
-        lessons: &HashMap<String, Lesson>,
-        lesson_texts: &HashMap<String, String>,
-        spoken_language: Option<spoken::Code>,
-        programming_language: Option<programming::Code>,
-    ) {
+    async fn set_lessons(&mut self, lessons: &HashMap<String, LessonData>) -> Result<(), Error> {
         self.lessons = lessons.clone();
-        self.lesson_texts = lesson_texts.clone();
-        self.spoken_language = spoken_language;
-        self.programming_language = programming_language;
 
         if self.lessons.is_empty() {
             self.titles_state.select(None);
@@ -62,6 +55,7 @@ impl Lessons<'_> {
             self.titles_state.select_first();
         };
 
+        /*
         // update the cached names
         let lesson_names = self
             .get_lesson_keys()
@@ -79,6 +73,43 @@ impl Lessons<'_> {
             )
             .style(Style::default().fg(Color::White))
             .highlight_symbol("> ");
+        */
+
+        Ok(())
+    }
+
+    async fn set_spoken_language(
+        &mut self,
+        spoken_language: Option<spoken::Code>,
+    ) -> Result<(), Error> {
+        self.spoken_language = spoken_language;
+        Ok(())
+    }
+
+    async fn set_programming_language(
+        &mut self,
+        programming_language: Option<programming::Code>,
+    ) -> Result<(), Error> {
+        self.programming_language = programming_language;
+        Ok(())
+    }
+
+    async fn set_selected_lesson(&mut self, lesson_key: String) -> Result<(), Error> {
+        if let Some(_lesson_data) = self.lessons.get(&lesson_key) {
+            /*
+            // set the lesson
+            self.lesson =
+                Some(lesson_data.get_lesson(self.spoken_language, self.programming_language)?);
+
+            // update the lesson texts
+            self.lesson_texts = lesson_data.get_texts()?;
+            */
+        } else {
+            info!("No lesson found for key: {}", lesson_key);
+            self.lesson = None;
+        }
+
+        Ok(())
     }
 
     // get the selected lesson key
@@ -93,8 +124,7 @@ impl Lessons<'_> {
 
     /// get the currently selected lesson
     fn get_selected_lesson(&self) -> Option<&Lesson> {
-        let lesson_key = self.get_selected_lesson_key()?;
-        self.lessons.get(lesson_key.as_str())
+        self.lesson.as_ref()
     }
 
     /// get the sorted list of lesson keys
@@ -160,13 +190,13 @@ impl Lessons<'_> {
     }
 
     // render the status bar at the bottom
-    fn render_status(&mut self, area: Rect, buf: &mut Buffer, last_frame_duration: Duration) {
+    fn render_status(&mut self, area: Rect, buf: &mut Buffer) {
         // render the status bar at the bottom
-        let [keys_area, fps_area] =
+        let [keys_area, langs_area] =
             Layout::horizontal([Constraint::Min(1), Constraint::Length(27)]).areas(area);
 
         self.render_keys(keys_area, buf);
-        self.render_fps(fps_area, buf, last_frame_duration);
+        self.render_langs(langs_area, buf);
     }
 
     // render the keyboard shortcuts
@@ -187,16 +217,12 @@ impl Lessons<'_> {
     }
 
     // render the frames per second
-    fn render_fps(&mut self, area: Rect, buf: &mut Buffer, last_frame_duration: Duration) {
+    fn render_langs(&mut self, area: Rect, buf: &mut Buffer) {
         let block = Block::default()
             .borders(Borders::NONE)
             .style(Style::default().fg(Color::Black).bg(Color::White))
             .title_alignment(Alignment::Right)
-            .padding(Padding::horizontal(1))
-            .title_bottom(format!(
-                "FPS: {:.2} ",
-                1.0 / last_frame_duration.as_secs_f64()
-            ));
+            .padding(Padding::horizontal(1));
 
         let spoken = match self.spoken_language {
             Some(code) => code.get_name_in_english().to_string(),
@@ -208,18 +234,136 @@ impl Lessons<'_> {
             None => "All".to_string(),
         };
 
-        let fps = Paragraph::new(format!("[ {} | {} ]", spoken, programming))
+        let langs = Paragraph::new(format!("[ {} | {} ]", spoken, programming))
             .block(block)
             .style(Style::default().fg(Color::Black).bg(Color::White))
             .wrap(Wrap { trim: false })
             .alignment(Alignment::Right);
 
-        Widget::render(fps, area, buf);
+        Widget::render(langs, area, buf);
+    }
+
+    /// handle UI events
+    pub async fn handle_ui_event(
+        &mut self,
+        event: tui::Event,
+        _to_ui: Sender<screens::Event>,
+    ) -> Result<(), Error> {
+        match event {
+            tui::Event::SpokenLanguage(spoken_language) => {
+                info!("Lessons Spoken language set: {:?}", spoken_language);
+                self.set_spoken_language(spoken_language).await?;
+            }
+            tui::Event::ProgrammingLanguage(programming_language) => {
+                info!(
+                    "Lessons Programming language set: {:?}",
+                    programming_language
+                );
+                self.set_programming_language(programming_language).await?;
+            }
+            // TODO: have this also pass the selected workshop for clean resuming
+            tui::Event::SetLessons(lessons) => {
+                info!("Setting lessons");
+                self.set_lessons(&lessons).await?;
+                if let Some(lesson_key) = self.get_selected_lesson_key() {
+                    self.set_selected_lesson(lesson_key).await?;
+                }
+            }
+            tui::Event::SelectLesson(lesson_key) => {
+                info!("Selected lesson: {}", lesson_key);
+                self.set_selected_lesson(lesson_key).await?;
+            }
+            _ => {
+                info!("Ignoring UI event: {:?}", event);
+            }
+        }
+        Ok(())
+    }
+
+    /// handle input events
+    pub async fn handle_input_event(
+        &mut self,
+        event: event::Event,
+        to_ui: Sender<screens::Event>,
+    ) -> Result<(), Error> {
+        if let event::Event::Key(key) = event {
+            match key.code {
+                KeyCode::PageUp => match self.focused {
+                    FocusedView::List => {
+                        self.titles_state.select_first();
+                        if let Some(lesson_key) = self.get_selected_lesson_key() {
+                            self.set_selected_lesson(lesson_key).await?;
+                        }
+                    }
+                    FocusedView::Info => self.st.scroll_top(),
+                },
+                KeyCode::PageDown => match self.focused {
+                    FocusedView::List => {
+                        self.titles_state.select_last();
+                        if let Some(lesson_key) = self.get_selected_lesson_key() {
+                            self.set_selected_lesson(lesson_key).await?;
+                        }
+                    }
+                    FocusedView::Info => self.st.scroll_bottom(),
+                },
+                KeyCode::Char('j') | KeyCode::Char('J') | KeyCode::Down => match self.focused {
+                    FocusedView::List => {
+                        info!("select next");
+                        self.titles_state.select_next();
+                        if let Some(lesson_key) = self.get_selected_lesson_key() {
+                            self.set_selected_lesson(lesson_key).await?;
+                        }
+                    }
+                    FocusedView::Info => self.st.scroll_down(),
+                },
+                KeyCode::Char('k') | KeyCode::Char('K') | KeyCode::Up => match self.focused {
+                    FocusedView::List => {
+                        info!("select previous");
+                        self.titles_state.select_previous();
+                        info!("selected previous");
+                        if let Some(lesson_key) = self.get_selected_lesson_key() {
+                            info!("Setting selected workshop: {}", lesson_key);
+                            self.set_selected_lesson(lesson_key).await?;
+                        }
+                    }
+                    FocusedView::Info => self.st.scroll_up(),
+                },
+                KeyCode::Tab => {
+                    info!("Switch focus");
+                    self.focused = match self.focused {
+                        FocusedView::List => FocusedView::Info,
+                        FocusedView::Info => FocusedView::List,
+                    };
+                }
+                KeyCode::Enter => {
+                    if let Some(lesson_key) = self.get_selected_lesson_key() {
+                        info!("Selected lesson: {}", lesson_key);
+                        to_ui
+                            .send(tui::Event::LoadLessons(lesson_key).into())
+                            .await?;
+                    }
+                }
+                _ => {}
+            }
+        }
+        Ok(())
     }
 }
 
 #[async_trait::async_trait]
 impl Screen for Lessons<'_> {
+    async fn handle_event(
+        &mut self,
+        event: screens::Event,
+        to_ui: Sender<screens::Event>,
+    ) -> Result<(), Error> {
+        match event {
+            screens::Event::Input(input_event) => self.handle_input_event(input_event, to_ui).await,
+            screens::Event::Ui(ui_event) => self.handle_ui_event(ui_event, to_ui).await,
+        }
+    }
+
+    /*
     async fn handle_event(
         &mut self,
         evt: Event,
@@ -288,13 +432,9 @@ impl Screen for Lessons<'_> {
         }
         Ok(None)
     }
+    */
 
-    fn render_screen(
-        &mut self,
-        area: Rect,
-        buf: &mut Buffer,
-        last_frame_duration: Duration,
-    ) -> Result<(), Error> {
+    fn render_screen(&mut self, area: Rect, buf: &mut Buffer) -> Result<(), Error> {
         // this splits the screen into a top area and a one-line bottom area
         let [lessons_area, status_area] =
             Layout::vertical([Constraint::Percentage(100), Constraint::Min(2)])
@@ -302,7 +442,7 @@ impl Screen for Lessons<'_> {
                 .areas(area);
 
         self.render_lessons(lessons_area, buf);
-        self.render_status(status_area, buf, last_frame_duration);
+        self.render_status(status_area, buf);
 
         Ok(())
     }

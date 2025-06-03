@@ -1,9 +1,8 @@
 use crate::{
-    ui::tui::{Event as UiEvent, Screen},
+    ui::tui::{self, screens, Screen},
     Error,
 };
-use crossterm::event::{Event, KeyCode};
-use engine::Message;
+use crossterm::event::{self, KeyCode};
 use languages::programming;
 use ratatui::{
     buffer::Buffer,
@@ -13,7 +12,6 @@ use ratatui::{
         Block, Borders, Clear, List, ListState, Padding, Paragraph, StatefulWidget, Widget, Wrap,
     },
 };
-use std::time::Duration;
 use tokio::sync::mpsc::Sender;
 use tracing::info;
 
@@ -35,13 +33,11 @@ pub struct Programming<'a> {
 
 impl Programming<'_> {
     /// set the programming language list
-    fn set_programming_languages(
+    async fn set_programming_languages(
         &mut self,
         programming_languages: &[programming::Code],
-        programming_language: Option<programming::Code>,
-    ) {
+    ) -> Result<(), Error> {
         self.programming_languages = programming_languages.to_vec();
-        self.programming_language = programming_language;
 
         let mut programming_language_names = vec!["Any".to_string()];
         programming_language_names.extend(
@@ -74,6 +70,23 @@ impl Programming<'_> {
             )
             .style(Style::default().fg(Color::White))
             .highlight_symbol("> ");
+        Ok(())
+    }
+
+    async fn set_programming_language(
+        &mut self,
+        programming_language: Option<programming::Code>,
+    ) -> Result<(), Error> {
+        self.programming_language = programming_language;
+        let select_index = match programming_language {
+            Some(code) => match self.programming_languages.iter().position(|&c| c == code) {
+                Some(index) => Some(index + 1),
+                None => Some(0),
+            },
+            None => Some(0),
+        };
+        self.list_state.select(select_index);
+        Ok(())
     }
 
     fn recalculate_rect(&mut self, area: Rect) {
@@ -118,79 +131,89 @@ impl Programming<'_> {
 
         Widget::render(keys, area, buf);
     }
-}
 
-#[async_trait::async_trait]
-impl Screen for Programming<'_> {
-    /// handle an input event
-    async fn handle_event(
+    /// handle UI events
+    pub async fn handle_ui_event(
         &mut self,
-        evt: Event,
-        to_engine: Sender<Message>,
-    ) -> Result<Option<UiEvent>, Error> {
-        if let Event::Key(key) = evt {
+        event: tui::Event,
+        _to_ui: Sender<screens::Event>,
+    ) -> Result<(), Error> {
+        match event {
+            tui::Event::ProgrammingLanguage(programming_language) => {
+                info!("programming language set: {:?}", programming_language);
+                self.set_programming_language(programming_language).await?;
+            }
+            tui::Event::SetProgrammingLanguages(ref programming_languages) => {
+                info!("Setting programming languages: {:?}", programming_languages);
+                self.set_programming_languages(programming_languages)
+                    .await?;
+            }
+            _ => {
+                info!("Ignoring UI event: {:?}", event);
+            }
+        }
+        Ok(())
+    }
+
+    /// handle input events
+    pub async fn handle_input_event(
+        &mut self,
+        event: event::Event,
+        to_ui: Sender<screens::Event>,
+    ) -> Result<(), Error> {
+        if let event::Event::Key(key) = event {
             match key.code {
                 KeyCode::PageUp => self.list_state.select_first(),
                 KeyCode::PageDown => self.list_state.select_last(),
-                KeyCode::Char('b') | KeyCode::Esc => return Ok(Some(UiEvent::Back)),
+                KeyCode::Char('b') | KeyCode::Esc => {
+                    info!("Back to previous screen");
+                    to_ui.send(tui::Event::LoadWorkshops.into()).await?;
+                }
                 KeyCode::Char('j') | KeyCode::Down => self.list_state.select_next(),
                 KeyCode::Char('k') | KeyCode::Up => self.list_state.select_previous(),
                 KeyCode::Enter => {
                     if let Some(selected) = self.list_state.selected() {
                         let programming_language = if selected == 0 {
-                            info!("Programming language selected: Any");
+                            info!("programming language selected: Any");
                             None
                         } else {
                             match self.programming_languages.get(selected - 1) {
                                 Some(code) => {
-                                    info!("Programming language selected: {:?}", code);
+                                    info!("programming language selected: {:?}", code);
                                     Some(*code)
                                 }
                                 None => {
-                                    info!("No Programming language selected");
+                                    info!("No programming language selected");
                                     None
                                 }
                             }
                         };
-                        to_engine
-                            .send(Message::SetProgrammingLanguage {
-                                programming_language,
-                            })
+                        to_ui
+                            .send(tui::Event::ProgrammingLanguage(programming_language).into())
                             .await?;
-                        return Ok(Some(UiEvent::SetProgrammingLanguage {
-                            programming_language,
-                        }));
                     }
                 }
                 _ => {}
             }
         }
-        Ok(None)
+        Ok(())
     }
+}
 
-    async fn handle_message(
+#[async_trait::async_trait]
+impl Screen for Programming<'_> {
+    async fn handle_event(
         &mut self,
-        msg: Message,
-        _to_engine: Sender<Message>,
-    ) -> Result<Option<UiEvent>, Error> {
-        if let Message::SelectProgrammingLanguage {
-            programming_languages,
-            programming_language,
-        } = msg
-        {
-            info!("Select programming language: {:?}", programming_languages);
-            self.set_programming_languages(&programming_languages, programming_language);
-            return Ok(Some(UiEvent::SelectProgrammingLanguage));
-        }
-        Ok(None)
-    }
-
-    fn render_screen(
-        &mut self,
-        area: Rect,
-        buf: &mut Buffer,
-        _last_frame_duration: Duration,
+        event: screens::Event,
+        to_ui: Sender<screens::Event>,
     ) -> Result<(), Error> {
+        match event {
+            screens::Event::Input(input_event) => self.handle_input_event(input_event, to_ui).await,
+            screens::Event::Ui(ui_event) => self.handle_ui_event(ui_event, to_ui).await,
+        }
+    }
+
+    fn render_screen(&mut self, area: Rect, buf: &mut Buffer) -> Result<(), Error> {
         self.recalculate_rect(area);
 
         // clear area around the popup

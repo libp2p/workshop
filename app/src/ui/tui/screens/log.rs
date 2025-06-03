@@ -1,9 +1,9 @@
 use crate::{
-    ui::tui::{widgets::ScrollText, Event as UiEvent, Screen},
+    ui::tui::{self, screens, widgets::ScrollText, Screen},
     Error,
 };
-use crossterm::event::{Event, KeyCode};
-use engine::Message;
+use crossterm::event::{self, KeyCode};
+use languages::spoken;
 use ratatui::{
     buffer::Buffer,
     layout::{Alignment, Constraint, Flex, Layout, Offset, Rect},
@@ -11,8 +11,9 @@ use ratatui::{
     text::Line,
     widgets::{Block, Borders, Clear, Padding, Paragraph, StatefulWidget, Widget, Wrap},
 };
-use std::{collections::VecDeque, time::Duration};
+use std::collections::VecDeque;
 use tokio::sync::mpsc::Sender;
+use tracing::info;
 
 #[derive(Clone, Debug)]
 pub struct Log<'a> {
@@ -28,6 +29,8 @@ pub struct Log<'a> {
     area: Rect,
     /// the cached calculated rect
     centered: Rect,
+    /// the currently selected spoken language
+    spoken_language: Option<spoken::Code>,
 }
 
 impl Log<'_> {
@@ -42,7 +45,16 @@ impl Log<'_> {
             st,
             area: Rect::default(),
             centered: Rect::default(),
+            spoken_language: None,
         }
+    }
+
+    async fn set_spoken_language(
+        &mut self,
+        spoken_language: Option<spoken::Code>,
+    ) -> Result<(), Error> {
+        self.spoken_language = spoken_language;
+        Ok(())
     }
 
     fn recalculate_rect(&mut self, area: Rect) {
@@ -115,44 +127,65 @@ impl Log<'_> {
 
         Widget::render(keys, area, buf);
     }
+
+    /// handle UI events
+    pub async fn handle_ui_event(
+        &mut self,
+        event: tui::Event,
+        _to_ui: Sender<screens::Event>,
+    ) -> Result<(), Error> {
+        match event {
+            tui::Event::SpokenLanguage(spoken_language) => {
+                info!("Spoken language set: {:?}", spoken_language);
+                self.set_spoken_language(spoken_language).await?;
+            }
+            tui::Event::Log(msg) => {
+                self.add_message(msg);
+            }
+            _ => {
+                info!("Ignoring UI event: {:?}", event);
+            }
+        }
+        Ok(())
+    }
+
+    /// handle input events
+    pub async fn handle_input_event(
+        &mut self,
+        event: event::Event,
+        to_ui: Sender<screens::Event>,
+    ) -> Result<(), Error> {
+        if let event::Event::Key(key) = event {
+            match key.code {
+                KeyCode::PageUp => self.st.scroll_top(),
+                KeyCode::PageDown => self.st.scroll_bottom(),
+                KeyCode::Char('j') | KeyCode::Char('J') | KeyCode::Down => self.st.scroll_down(),
+                KeyCode::Char('k') | KeyCode::Char('K') | KeyCode::Up => self.st.scroll_up(),
+                KeyCode::Char('`') => {
+                    info!("input event: Hide Log");
+                    to_ui.send(tui::Event::ToggleLog.into()).await?
+                }
+                _ => {}
+            }
+        }
+        Ok(())
+    }
 }
 
 #[async_trait::async_trait]
 impl Screen for Log<'_> {
     async fn handle_event(
         &mut self,
-        evt: Event,
-        _to_engine: Sender<Message>,
-    ) -> Result<Option<UiEvent>, Error> {
-        if let Event::Key(key) = evt {
-            match key.code {
-                KeyCode::PageUp => self.st.scroll_top(),
-                KeyCode::PageDown => self.st.scroll_bottom(),
-                KeyCode::Char('j') | KeyCode::Char('J') | KeyCode::Down => self.st.scroll_down(),
-                KeyCode::Char('k') | KeyCode::Char('K') | KeyCode::Up => self.st.scroll_up(),
-                _ => {}
-            }
-        }
-        Ok(None)
-    }
-
-    async fn handle_message(
-        &mut self,
-        msg: Message,
-        _to_engine: Sender<Message>,
-    ) -> Result<Option<UiEvent>, Error> {
-        if let Message::Log { msg } = msg {
-            self.add_message(msg.clone());
-        }
-        Ok(None)
-    }
-
-    fn render_screen(
-        &mut self,
-        area: Rect,
-        buf: &mut Buffer,
-        _last_frame_duration: Duration,
+        event: screens::Event,
+        to_ui: Sender<screens::Event>,
     ) -> Result<(), Error> {
+        match event {
+            screens::Event::Input(input_event) => self.handle_input_event(input_event, to_ui).await,
+            screens::Event::Ui(ui_event) => self.handle_ui_event(ui_event, to_ui).await,
+        }
+    }
+
+    fn render_screen(&mut self, area: Rect, buf: &mut Buffer) -> Result<(), Error> {
         self.recalculate_rect(area);
 
         // clear area around the popup
