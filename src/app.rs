@@ -21,7 +21,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::{error, info};
 
 /// Tui implementation of the UI
-pub struct Ui {
+pub struct App {
     /// The receiver from the logger
     from_logger: Receiver<String>,
     /// The configuration
@@ -44,7 +44,7 @@ pub struct Ui {
     programming_language: Option<programming::Code>,
 }
 
-impl Ui {
+impl App {
     /// Create a new UI
     pub fn new(from_logger: Receiver<String>, config: Config) -> Self {
         info!("creating UI with config: {:?}", config);
@@ -430,7 +430,7 @@ impl Ui {
 }
 
 #[async_trait::async_trait]
-impl Screen for Ui {
+impl Screen for App {
     async fn handle_event(
         &mut self,
         event: screens::Event,
@@ -463,7 +463,7 @@ impl Screen for Ui {
     }
 }
 
-impl Widget for &mut Ui {
+impl Widget for &mut App {
     fn render(self, area: Rect, buf: &mut Buffer) {
         let _ = self.render_screen(area, buf);
     }
