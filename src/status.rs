@@ -66,6 +66,11 @@ impl Status {
         self.programming_language
     }
 
+    /// Get the selected workshop
+    pub fn workshop(&self) -> Option<String> {
+        self.workshop.clone()
+    }
+
     /// Set the spoken language with optional default
     pub fn set_spoken_language(&mut self, spoken_language: Option<spoken::Code>, default: bool) {
         self.spoken_language = spoken_language;
@@ -84,5 +89,10 @@ impl Status {
         if default {
             self.config.set_programming_language(programming_language);
         }
+    }
+
+    /// Set the selected workshop
+    pub fn set_workshop(&mut self, workshop: Option<String>) {
+        self.workshop = workshop;
     }
 }

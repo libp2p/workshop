@@ -426,6 +426,7 @@ impl WorkshopData {
 
         let mut lessons_data: HashMap<String, LessonData> = HashMap::new();
         for lesson in lessons.iter() {
+            info!("(engine) Loading lesson data: {:?}", lesson);
             let lesson_data = lesson.write().await.try_load().await.cloned()?;
             lessons_data.insert(lesson_data.get_name().to_string(), lesson_data);
         }
@@ -575,6 +576,11 @@ impl Loader {
         workshop_dir: &Path,
         spoken_languages: &Vec<spoken::Code>,
     ) -> Result<LessonsDataMap, Error> {
+        info!(
+            "(engine) WorkshopData::try_load_lessons_data: {}, {:?}",
+            workshop_dir.display(),
+            spoken_languages
+        );
         let mut lessons_data: LessonsDataMap = LessonsDataMap::new();
 
         for spoken in spoken_languages {
@@ -603,6 +609,13 @@ impl Loader {
                                     .filter_map(|entry| {
                                         if let Ok(e) = entry {
                                             if e.path().is_dir() {
+                                                info!(
+                                                    "(engine) Found lesson data under {}: {} + {}: {}",
+                                                    workshop_dir.display(),
+                                                    spoken,
+                                                    code,
+                                                    e.path().display()
+                                                );
                                                 return Some(Arc::new(RwLock::new(
                                                     LazyLoader::NotLoaded(e.path()),
                                                 )));

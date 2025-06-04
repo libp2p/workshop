@@ -11,6 +11,7 @@ use ratatui::{
     text::Line,
     widgets::{Block, Borders, Clear, Padding, Paragraph, StatefulWidget, Widget, Wrap},
 };
+use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc::Sender;
 use tracing::info;
 
@@ -98,12 +99,16 @@ impl License<'_> {
         &mut self,
         event: tui::Event,
         to_ui: Sender<screens::Event>,
-        status: Status,
+        status: Arc<Mutex<Status>>,
     ) -> Result<(), Error> {
         match event {
             tui::Event::ShowLicense(text) => {
                 info!("Setting license text");
-                self.set_license(text, status.spoken_language()).await?;
+                let spoken = {
+                    let status = status.lock().unwrap();
+                    status.spoken_language()
+                };
+                self.set_license(text, spoken).await?;
                 to_ui
                     .send((None, tui::Event::Show(screens::Screens::License)).into())
                     .await?;
@@ -120,14 +125,16 @@ impl License<'_> {
         &mut self,
         event: event::Event,
         to_ui: Sender<screens::Event>,
-        _status: Status,
+        _status: Arc<Mutex<Status>>,
     ) -> Result<(), Error> {
         if let event::Event::Key(key) = event {
             match key.code {
                 KeyCode::PageUp => self.st.scroll_top(),
                 KeyCode::PageDown => self.st.scroll_bottom(),
                 KeyCode::Char('b') | KeyCode::Esc => {
-                    to_ui.send((None, tui::Event::LoadWorkshops).into()).await?;
+                    to_ui
+                        .send((Some(screens::Screens::Workshops), tui::Event::LoadWorkshops).into())
+                        .await?;
                 }
                 KeyCode::Char('j') | KeyCode::Down => self.st.scroll_down(),
                 KeyCode::Char('k') | KeyCode::Up => self.st.scroll_up(),
@@ -144,7 +151,7 @@ impl Screen for License<'_> {
         &mut self,
         event: screens::Event,
         to_ui: Sender<screens::Event>,
-        status: Status,
+        status: Arc<Mutex<Status>>,
     ) -> Result<(), Error> {
         match event {
             screens::Event::Input(input_event) => {

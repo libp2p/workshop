@@ -12,6 +12,7 @@ use ratatui::{
         Block, Borders, Clear, List, ListState, Padding, Paragraph, StatefulWidget, Widget, Wrap,
     },
 };
+use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc::Sender;
 use tracing::info;
 
@@ -111,12 +112,16 @@ impl SetDefault<'_> {
         &mut self,
         event: tui::Event,
         to_ui: Sender<screens::Event>,
-        status: Status,
+        status: Arc<Mutex<Status>>,
     ) -> Result<(), Error> {
         match event {
             tui::Event::SetDefault(title, event) => {
                 info!("Set as default?");
-                self.init(&title, status.spoken_language(), event).await?;
+                let spoken = {
+                    let status = status.lock().unwrap();
+                    status.spoken_language()
+                };
+                self.init(&title, spoken, event).await?;
                 info!("Showing SetDefault screen");
                 to_ui
                     .send((None, tui::Event::Show(screens::Screens::SetDefault)).into())
@@ -134,7 +139,7 @@ impl SetDefault<'_> {
         &mut self,
         event: event::Event,
         to_ui: Sender<screens::Event>,
-        _status: Status,
+        _status: Arc<Mutex<Status>>,
     ) -> Result<(), Error> {
         info!("SetDefault input event: {:?}", event);
         if let event::Event::Key(key) = event {
@@ -175,7 +180,7 @@ impl Screen for SetDefault<'_> {
         &mut self,
         event: screens::Event,
         to_ui: Sender<screens::Event>,
-        status: Status,
+        status: Arc<Mutex<Status>>,
     ) -> Result<(), Error> {
         match event {
             screens::Event::Input(input_event) => {

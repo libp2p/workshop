@@ -8,6 +8,7 @@ use std::{
     collections::HashMap,
     path::{Path, PathBuf},
 };
+use tracing::info;
 
 const APPLICATION_PARTS: [&str; 3] = ["io", "libp2p", "workshop"];
 
@@ -115,11 +116,37 @@ pub mod application {
 pub mod workshops {
     use super::*;
 
+    // recursively copy the folder from the source path to the target path
+    fn copy_tree<P: AsRef<Path>>(source: P, target: P) -> Result<(), Error> {
+        let source = source.as_ref();
+        let target = target.as_ref();
+
+        if !source.exists() || !source.is_dir() {
+            return Err(FsError::WorkshopDataDirNotFound.into());
+        }
+
+        // create the target directory if it doesn't exist
+        std::fs::create_dir_all(target)?;
+
+        for entry in std::fs::read_dir(source)? {
+            let entry = entry?;
+            let entry_path = entry.path();
+            let target_path = target.join(entry.file_name());
+
+            if entry_path.is_dir() {
+                copy_tree(entry_path, target_path)?;
+            } else {
+                std::fs::copy(entry_path, target_path)?;
+            }
+        }
+        Ok(())
+    }
+
     /// Initialize the present working directory (pwd) by creating a `.workshops` directory, if
     /// missing, and then recursively copying the selected workshop from the application data
     /// directory to the `.workshops` directory. Then return the path to the `.workshops`
     /// directory.
-    pub fn init_data_dir(workshop: String) -> Result<PathBuf, Error> {
+    pub fn init_data_dir<S: AsRef<str>>(workshop: S) -> Result<PathBuf, Error> {
         // get the pwd
         let pwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
         let workshops_dir = pwd.join(".workshops");
@@ -129,12 +156,15 @@ pub mod workshops {
 
         // Copy the selected workshop to the workshops directory
         let data_dir = application::data_dir()?;
-        let workshop_path = data_dir.join(&workshop);
+        let workshop_path = data_dir.join(workshop.as_ref());
         if workshop_path.exists() && workshop_path.is_dir() {
-            let target_path = workshops_dir.join(&workshop);
-            if !target_path.exists() {
-                std::fs::copy(workshop_path, target_path)?;
-            }
+            let target_path = workshops_dir.join(workshop.as_ref());
+            info!(
+                "Copying workshop data from {} to {}",
+                workshop_path.display(),
+                target_path.display()
+            );
+            copy_tree(workshop_path, target_path)?;
         } else {
             return Err(FsError::WorkshopDataDirNotFound.into());
         }
@@ -160,11 +190,11 @@ pub mod workshops {
     }
 
     /// Get the given workshop in the `.workshops` directory, if it exists.
-    pub fn load(workshop: String) -> Option<workshop::WorkshopData> {
+    pub fn load<S: AsRef<str>>(workshop: S) -> Option<workshop::WorkshopData> {
         let workshops_dir = data_dir()?;
-        let workshop_path = workshops_dir.join(&workshop);
+        let workshop_path = workshops_dir.join(workshop.as_ref());
         if workshop_path.exists() && workshop_path.is_dir() {
-            return workshop::Loader::new(&workshop)
+            return workshop::Loader::new(workshop.as_ref())
                 .path(&workshops_dir)
                 .try_load()
                 .ok();

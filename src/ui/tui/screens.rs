@@ -18,7 +18,10 @@ pub use workshops::Workshops;
 use crate::{ui::tui, Error, Status};
 use crossterm::event;
 use ratatui::{buffer::Buffer, layout::Rect};
-use std::fmt;
+use std::{
+    fmt,
+    sync::{Arc, Mutex},
+};
 use tokio::sync::mpsc::Sender;
 
 /// The screens
@@ -106,7 +109,7 @@ pub trait Screen: Send + Sync {
         &mut self,
         event: Event,
         to_ui: Sender<Event>,
-        status: Status,
+        status: Arc<Mutex<Status>>,
     ) -> Result<(), Error>;
 
     /// Render the screen

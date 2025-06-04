@@ -1,4 +1,5 @@
 use crate::{
+    fs,
     languages::{programming, spoken},
     models::{Lesson, LessonData},
     ui::tui::{self, screens, widgets::ScrollText, Screen},
@@ -8,10 +9,13 @@ use crossterm::event::{self, KeyCode};
 use ratatui::{
     buffer::Buffer,
     layout::{Alignment, Constraint, Flex, Layout, Rect},
-    style::{Color, Style},
+    style::{Color, Modifier, Style},
     widgets::{Block, Borders, List, ListState, Padding, Paragraph, StatefulWidget, Widget, Wrap},
 };
-use std::collections::HashMap;
+use std::{
+    collections::{BTreeMap, HashMap},
+    sync::{Arc, Mutex},
+};
 use tokio::sync::mpsc::Sender;
 use tracing::info;
 
@@ -26,10 +30,10 @@ enum FocusedView {
 pub struct Lessons<'a> {
     /// the lesson data
     lessons: HashMap<String, LessonData>,
-    /// the selected lesson
-    lesson: Option<Lesson>,
-    /// the lesson texts
-    lesson_texts: HashMap<String, String>,
+    /// the cached selected lesson data
+    selected: Option<Lesson>,
+    /// the map of lesson titles to lesson keys
+    titles_map: BTreeMap<String, String>,
     /// the cached list
     titles: List<'a>,
     /// the list state of lesson title
@@ -46,8 +50,15 @@ pub struct Lessons<'a> {
 
 impl Lessons<'_> {
     /// set the lessons
-    async fn set_lessons(&mut self, lessons: &HashMap<String, LessonData>) -> Result<(), Error> {
+    async fn init(
+        &mut self,
+        lessons: &HashMap<String, LessonData>,
+        spoken_language: Option<spoken::Code>,
+        programming_language: Option<programming::Code>,
+    ) -> Result<(), Error> {
         self.lessons = lessons.clone();
+        self.spoken_language = spoken_language;
+        self.programming_language = programming_language;
 
         if self.lessons.is_empty() {
             self.titles_state.select(None);
@@ -55,16 +66,9 @@ impl Lessons<'_> {
             self.titles_state.select_first();
         };
 
-        /*
-        // update the cached names
-        let lesson_names = self
-            .get_lesson_keys()
-            .iter()
-            .map(|name| self.lessons.get(name).unwrap().title.clone())
-            .collect::<Vec<_>>();
-
-        // create the list of lesson titles
-        self.titles = List::new(lesson_names)
+        // get the list of titles
+        let titles = self.get_titles().await?;
+        self.titles = List::new(titles)
             .highlight_style(
                 Style::default()
                     .fg(Color::Black)
@@ -73,26 +77,79 @@ impl Lessons<'_> {
             )
             .style(Style::default().fg(Color::White))
             .highlight_symbol("> ");
-        */
+
+        // cache all of the data for the selected lesson
+        self.cache_selected().await?;
 
         Ok(())
     }
 
-    async fn set_selected_lesson(&mut self, lesson_key: String) -> Result<(), Error> {
-        if let Some(_lesson_data) = self.lessons.get(&lesson_key) {
-            /*
-            // set the lesson
-            self.lesson =
-                Some(lesson_data.get_lesson(self.spoken_language, self.programming_language)?);
-
-            // update the lesson texts
-            self.lesson_texts = lesson_data.get_texts()?;
-            */
-        } else {
-            info!("No lesson found for key: {}", lesson_key);
-            self.lesson = None;
+    // get the lesson titles
+    async fn get_titles(&mut self) -> Result<Vec<String>, Error> {
+        info!("Caching lesson titles");
+        self.titles_map.clear();
+        for (key, ld) in self.lessons.iter() {
+            let lesson = ld.get_metadata().await?;
+            self.titles_map.insert(lesson.title.clone(), key.clone());
         }
+        Ok(self.titles_map.keys().cloned().collect())
+    }
 
+    // cached selected lesson data
+    async fn cache_selected(&mut self) -> Result<(), Error> {
+        info!("Caching selected lesson data");
+        self.selected = None;
+        if let Some(lesson_key) = self.get_selected_lesson_key() {
+            if let Some(lesson_data) = self.lessons.get(&lesson_key) {
+                let lesson = lesson_data.get_metadata().await?;
+                self.selected = Some(lesson);
+            }
+        }
+        Ok(())
+    }
+
+    // select first lesson
+    async fn select_first(&mut self) -> Result<(), Error> {
+        if !self.lessons.is_empty() {
+            self.titles_state.select(Some(0));
+            self.cache_selected().await?;
+        }
+        Ok(())
+    }
+
+    // select last lesson
+    async fn select_last(&mut self) -> Result<(), Error> {
+        if !self.lessons.is_empty() {
+            let last_index = self.lessons.len() - 1;
+            self.titles_state.select(Some(last_index));
+            self.cache_selected().await?;
+        }
+        Ok(())
+    }
+
+    // select next lesson
+    async fn select_next(&mut self) -> Result<(), Error> {
+        if !self.lessons.is_empty() {
+            let selected_index = self.titles_state.selected().unwrap_or(0);
+            let next_index = (selected_index + 1).min(self.lessons.len() - 1);
+            self.titles_state.select(Some(next_index));
+            self.cache_selected().await?;
+        }
+        Ok(())
+    }
+
+    // select previous lesson
+    async fn select_prev(&mut self) -> Result<(), Error> {
+        if !self.lessons.is_empty() {
+            let selected_index = self.titles_state.selected().unwrap_or(0);
+            let prev_index = if selected_index > 0 {
+                selected_index - 1
+            } else {
+                0
+            };
+            self.titles_state.select(Some(prev_index));
+            self.cache_selected().await?;
+        }
         Ok(())
     }
 
@@ -101,21 +158,13 @@ impl Lessons<'_> {
         if self.lessons.is_empty() {
             return None;
         }
-
         let selected_index = self.titles_state.selected().unwrap_or(0);
         self.get_lesson_keys().get(selected_index).cloned()
     }
 
-    /// get the currently selected lesson
-    fn get_selected_lesson(&self) -> Option<&Lesson> {
-        self.lesson.as_ref()
-    }
-
-    /// get the sorted list of lesson keys
+    // get the sorted list of lesson keys
     fn get_lesson_keys(&self) -> Vec<String> {
-        let mut lesson_keys = self.lessons.keys().cloned().collect::<Vec<_>>();
-        lesson_keys.sort();
-        lesson_keys
+        self.titles_map.values().cloned().collect()
     }
 
     /// render the lesson list and info
@@ -149,7 +198,7 @@ impl Lessons<'_> {
 
     /// render the lesson info
     fn render_lesson_info(&mut self, area: Rect, buf: &mut Buffer) {
-        let mut description = match self.get_selected_lesson() {
+        let mut description = match &self.selected {
             Some(lesson) => lesson.description.clone(),
             None => "No lessons support the selected spoken and programming languages".to_string(),
         };
@@ -231,21 +280,32 @@ impl Lessons<'_> {
     pub async fn handle_ui_event(
         &mut self,
         event: tui::Event,
-        _to_ui: Sender<screens::Event>,
-        _status: Status,
+        to_ui: Sender<screens::Event>,
+        status: Arc<Mutex<Status>>,
     ) -> Result<(), Error> {
         match event {
-            // TODO: have this also pass the selected workshop for clean resuming
-            tui::Event::SetLessons(lessons) => {
-                info!("Setting lessons");
-                self.set_lessons(&lessons).await?;
-                if let Some(lesson_key) = self.get_selected_lesson_key() {
-                    self.set_selected_lesson(lesson_key).await?;
+            tui::Event::LoadLessons => {
+                info!("Loading lessons");
+                let (spoken, programming, workshop) = {
+                    let status = status
+                        .lock()
+                        .map_err(|e| Error::StatusLock(e.to_string()))?;
+                    (
+                        status.spoken_language(),
+                        status.programming_language(),
+                        status.workshop().unwrap(),
+                    )
+                };
+                if let Some(workshop_data) = fs::workshops::load(&workshop) {
+                    info!("Loading lessons for workshop: {}", &workshop);
+                    let lessons = workshop_data.get_lessons_data(spoken, programming).await?;
+                    self.init(&lessons, spoken, programming).await?;
+                    to_ui
+                        .send((None, tui::Event::Show(screens::Screens::Lessons)).into())
+                        .await?;
+                } else {
+                    info!("Failed to load workshop data for: {}", &workshop);
                 }
-            }
-            tui::Event::SelectLesson(lesson_key) => {
-                info!("Selected lesson: {}", lesson_key);
-                self.set_selected_lesson(lesson_key).await?;
             }
             _ => {
                 info!("Ignoring UI event: {:?}", event);
@@ -259,50 +319,39 @@ impl Lessons<'_> {
         &mut self,
         event: event::Event,
         to_ui: Sender<screens::Event>,
-        _status: Status,
+        _status: Arc<Mutex<Status>>,
     ) -> Result<(), Error> {
         if let event::Event::Key(key) = event {
             match key.code {
                 KeyCode::PageUp => match self.focused {
                     FocusedView::List => {
-                        self.titles_state.select_first();
-                        if let Some(lesson_key) = self.get_selected_lesson_key() {
-                            self.set_selected_lesson(lesson_key).await?;
-                        }
+                        self.select_first().await?;
                     }
                     FocusedView::Info => self.st.scroll_top(),
                 },
                 KeyCode::PageDown => match self.focused {
                     FocusedView::List => {
-                        self.titles_state.select_last();
-                        if let Some(lesson_key) = self.get_selected_lesson_key() {
-                            self.set_selected_lesson(lesson_key).await?;
-                        }
+                        self.select_last().await?;
                     }
                     FocusedView::Info => self.st.scroll_bottom(),
                 },
                 KeyCode::Char('j') | KeyCode::Char('J') | KeyCode::Down => match self.focused {
                     FocusedView::List => {
-                        info!("select next");
-                        self.titles_state.select_next();
-                        if let Some(lesson_key) = self.get_selected_lesson_key() {
-                            self.set_selected_lesson(lesson_key).await?;
-                        }
+                        self.select_next().await?;
                     }
                     FocusedView::Info => self.st.scroll_down(),
                 },
                 KeyCode::Char('k') | KeyCode::Char('K') | KeyCode::Up => match self.focused {
                     FocusedView::List => {
-                        info!("select previous");
-                        self.titles_state.select_previous();
-                        info!("selected previous");
-                        if let Some(lesson_key) = self.get_selected_lesson_key() {
-                            info!("Setting selected workshop: {}", lesson_key);
-                            self.set_selected_lesson(lesson_key).await?;
-                        }
+                        self.select_prev().await?;
                     }
                     FocusedView::Info => self.st.scroll_up(),
                 },
+                KeyCode::Char('b') | KeyCode::Esc => {
+                    to_ui
+                        .send((Some(screens::Screens::Workshops), tui::Event::LoadWorkshops).into())
+                        .await?;
+                }
                 KeyCode::Tab => {
                     info!("Switch focus");
                     self.focused = match self.focused {
@@ -314,7 +363,7 @@ impl Lessons<'_> {
                     if let Some(lesson_key) = self.get_selected_lesson_key() {
                         info!("Selected lesson: {}", lesson_key);
                         to_ui
-                            .send((None, tui::Event::LoadLessons(lesson_key)).into())
+                            .send((None, tui::Event::SetLesson(lesson_key)).into())
                             .await?;
                     }
                 }
@@ -331,7 +380,7 @@ impl Screen for Lessons<'_> {
         &mut self,
         event: screens::Event,
         to_ui: Sender<screens::Event>,
-        status: Status,
+        status: Arc<Mutex<Status>>,
     ) -> Result<(), Error> {
         match event {
             screens::Event::Input(input_event) => {
@@ -340,77 +389,6 @@ impl Screen for Lessons<'_> {
             screens::Event::Ui(_, ui_event) => self.handle_ui_event(ui_event, to_ui, status).await,
         }
     }
-
-    /*
-    async fn handle_event(
-        &mut self,
-        evt: Event,
-        to_engine: Sender<Message>,
-    ) -> Result<Option<UiEvent>, Error> {
-        if let Event::Key(key) = evt {
-            match key.code {
-                KeyCode::PageUp => match self.focused {
-                    FocusedView::List => self.titles_state.select_first(),
-                    FocusedView::Info => self.st.scroll_top(),
-                },
-                KeyCode::PageDown => self.st.scroll_bottom(),
-                KeyCode::Char('j') | KeyCode::Char('J') | KeyCode::Down => match self.focused {
-                    FocusedView::List => self.titles_state.select_next(),
-                    FocusedView::Info => self.st.scroll_down(),
-                },
-                KeyCode::Char('k') | KeyCode::Char('K') | KeyCode::Up => match self.focused {
-                    FocusedView::List => self.titles_state.select_previous(),
-                    FocusedView::Info => self.st.scroll_up(),
-                },
-                KeyCode::Tab => {
-                    info!("Switch focus");
-                    self.focused = match self.focused {
-                        FocusedView::List => FocusedView::Info,
-                        FocusedView::Info => FocusedView::List,
-                    };
-                }
-                KeyCode::Enter => {
-                    if let Some(lesson_key) = self.get_selected_lesson_key() {
-                        info!("Lessons selected: {}", lesson_key);
-                        to_engine
-                            .send(Message::SetLesson {
-                                name: lesson_key.clone(),
-                            })
-                            .await?;
-                        return Ok(Some(UiEvent::SetLesson(lesson_key)));
-                    }
-                }
-                _ => {}
-            }
-        }
-
-        Ok(None)
-    }
-
-    async fn handle_message(
-        &mut self,
-        msg: Message,
-        _to_engine: Sender<Message>,
-    ) -> Result<Option<UiEvent>, Error> {
-        if let Message::SelectLesson {
-            lessons,
-            lesson_texts,
-            spoken_language,
-            programming_language,
-        } = msg
-        {
-            info!("Showing select lesson screen");
-            self.set_lessons(
-                &lessons,
-                &lesson_texts,
-                spoken_language,
-                programming_language,
-            );
-            return Ok(Some(UiEvent::SelectLesson));
-        }
-        Ok(None)
-    }
-    */
 
     fn render_screen(&mut self, area: Rect, buf: &mut Buffer) -> Result<(), Error> {
         // this splits the screen into a top area and a one-line bottom area

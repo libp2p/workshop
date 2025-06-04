@@ -12,7 +12,10 @@ use ratatui::{
     style::{Color, Modifier, Style},
     widgets::{Block, Borders, List, ListState, Padding, Paragraph, StatefulWidget, Widget, Wrap},
 };
-use std::collections::HashMap;
+use std::{
+    collections::{BTreeMap, HashMap},
+    sync::{Arc, Mutex},
+};
 use tokio::sync::mpsc::Sender;
 use tracing::{error, info};
 
@@ -38,6 +41,8 @@ pub struct Workshops<'a> {
     workshops: HashMap<String, WorkshopData>,
     /// the currently selected workshop data
     selected: Option<Cached>,
+    /// the map of workshop titles to workshop keys in sorted order
+    titles_map: BTreeMap<String, String>,
     /// the cached list
     titles: List<'a>,
     /// the list state of workshop title
@@ -90,13 +95,14 @@ impl Workshops<'_> {
     }
 
     // get the workshop titles
-    async fn get_titles(&self) -> Result<Vec<String>, Error> {
-        let mut titles = Vec::with_capacity(self.workshops.len());
-        for (_, wd) in self.workshops.iter() {
+    async fn get_titles(&mut self) -> Result<Vec<String>, Error> {
+        info!("Caching workshop titles");
+        self.titles_map.clear();
+        for (key, wd) in self.workshops.iter() {
             let workshop = wd.get_metadata(self.spoken_language).await?;
-            titles.push(workshop.title.clone());
+            self.titles_map.insert(workshop.title.clone(), key.clone());
         }
-        Ok(titles)
+        Ok(self.titles_map.keys().cloned().collect())
     }
 
     // cached selected workshop data
@@ -184,9 +190,7 @@ impl Workshops<'_> {
 
     // get the sorted list of workshop keys
     fn get_workshop_keys(&self) -> Vec<String> {
-        let mut workshop_keys = self.workshops.keys().cloned().collect::<Vec<_>>();
-        workshop_keys.sort();
-        workshop_keys
+        self.titles_map.values().cloned().collect()
     }
 
     // get the cached URL for the selected workshop
@@ -374,13 +378,15 @@ impl Workshops<'_> {
         &mut self,
         event: tui::Event,
         to_ui: Sender<screens::Event>,
-        status: Status,
+        status: Arc<Mutex<Status>>,
     ) -> Result<(), Error> {
         match event {
             tui::Event::LoadWorkshops => {
                 info!("Loading workshops");
-                let spoken = status.spoken_language();
-                let programming = status.programming_language();
+                let (spoken, programming) = {
+                    let status = status.lock().unwrap();
+                    (status.spoken_language(), status.programming_language())
+                };
                 let workshops = fs::application::all_workshops_filtered(spoken, programming)?;
                 self.init(&workshops, spoken, programming).await?;
                 to_ui
@@ -399,7 +405,7 @@ impl Workshops<'_> {
         &mut self,
         event: event::Event,
         to_ui: Sender<screens::Event>,
-        _status: Status,
+        _status: Arc<Mutex<Status>>,
     ) -> Result<(), Error> {
         if let event::Event::Key(key) = event {
             match key.code {
@@ -484,7 +490,7 @@ impl Workshops<'_> {
                     if let Some(workshop_key) = self.get_selected_workshop_key() {
                         info!("Selected workshop: {}", workshop_key);
                         to_ui
-                            .send((None, tui::Event::SelectWorkshop(workshop_key)).into())
+                            .send((None, tui::Event::SetWorkshop(workshop_key)).into())
                             .await?;
                     }
                 }
@@ -501,7 +507,7 @@ impl Screen for Workshops<'_> {
         &mut self,
         event: screens::Event,
         to_ui: Sender<screens::Event>,
-        status: Status,
+        status: Arc<Mutex<Status>>,
     ) -> Result<(), Error> {
         match event {
             screens::Event::Input(input_event) => {

@@ -1,5 +1,5 @@
 use crate::{
-    languages::{programming, spoken},
+    fs,
     ui::tui::{
         self,
         screens::{self, Screen, Screens},
@@ -11,7 +11,10 @@ use futures::{future::FutureExt, StreamExt};
 use ratatui::{buffer::Buffer, layout::Rect, widgets::Widget};
 use std::{
     collections::HashMap,
-    sync::atomic::{AtomicBool, AtomicU8, Ordering},
+    sync::{
+        atomic::{AtomicBool, AtomicU8, Ordering},
+        Arc, Mutex,
+    },
 };
 use tokio::{
     select,
@@ -27,7 +30,7 @@ pub struct App {
     /// The receiver from the logger
     from_logger: Receiver<String>,
     /// The status
-    status: Status,
+    status: Arc<Mutex<Status>>,
     /// The available screens - uses wrapper types with 'static lifetime
     screens: HashMap<Screens, Box<dyn Screen>>,
     /// If the log window is shown
@@ -50,7 +53,7 @@ impl App {
 
         Ok(Self {
             from_logger,
-            status: Status::load()?,
+            status: Arc::new(Mutex::new(Status::load()?)),
             screens: Self::create_screens(),
             log: AtomicBool::new(false),
             screen: AtomicU8::new(Screens::Workshops as u8),
@@ -156,7 +159,13 @@ impl App {
 
         // clean up the terminal
         info!("Quitting...");
-        self.status.save()?;
+        {
+            let status = self
+                .status
+                .lock()
+                .map_err(|e| Error::StatusLock(e.to_string()))?;
+            status.save()?;
+        }
         ratatui::restore();
 
         Ok(())
@@ -168,7 +177,7 @@ impl App {
         screen: Option<Screens>,
         event: tui::Event,
         to_ui: Sender<screens::Event>,
-        status: Status,
+        status: Arc<Mutex<Status>>,
     ) -> Result<(), Error> {
         if let Some(dest_screen) = screen.clone() {
             // pass the event to the target screen
@@ -195,7 +204,10 @@ impl App {
                     info!("UI event: Spoken language set: {:?}", spoken_language);
                     if let Some(default) = default {
                         info!("Setting spoken language as default: {:?}", spoken_language);
-                        self.status.set_spoken_language(spoken_language, default);
+                        {
+                            let mut status = self.status.lock().unwrap();
+                            status.set_spoken_language(spoken_language, default);
+                        }
                         to_ui
                             .send(
                                 (Some(screens::Screens::Workshops), tui::Event::LoadWorkshops)
@@ -204,7 +216,10 @@ impl App {
                             .await?;
                     } else {
                         info!("Setting spoken language: {:?}", spoken_language);
-                        self.status.set_spoken_language(spoken_language, false);
+                        {
+                            let mut status = self.status.lock().unwrap();
+                            status.set_spoken_language(spoken_language, false);
+                        }
                         to_ui
                             .send(
                                 (
@@ -232,8 +247,10 @@ impl App {
                             "Setting programming language as default: {:?}",
                             programming_language
                         );
-                        self.status
-                            .set_programming_language(programming_language, default);
+                        {
+                            let mut status = self.status.lock().unwrap();
+                            status.set_programming_language(programming_language, default);
+                        }
                         to_ui
                             .send(
                                 (Some(screens::Screens::Workshops), tui::Event::LoadWorkshops)
@@ -242,8 +259,10 @@ impl App {
                             .await?;
                     } else {
                         info!("Setting programming language: {:?}", programming_language);
-                        self.status
-                            .set_programming_language(programming_language, false);
+                        {
+                            let mut status = self.status.lock().unwrap();
+                            status.set_programming_language(programming_language, false);
+                        }
                         to_ui
                             .send(
                                 (
@@ -261,138 +280,17 @@ impl App {
                             .await?;
                     }
                 }
-                /*
-                tui::Event::LoadWorkshops => {
-                    info!("UI event: Load Workshops");
-                    let workshop_data = crate::fs::get_workshops_data(self.config.data_dir())?
-                        .into_iter()
-                        .filter(|(_, workshop_data)| {
-                            workshop_data
-                                .is_selected(self.spoken_language, self.programming_language)
-                        })
-                        .collect::<HashMap<_, _>>();
-
-                    // send the workshops to the workshops screen
-                    if let Some(screen) = self.screens.get_mut(&Screens::Workshops) {
-                        // set the workshop data
-                        screen
-                            .handle_event(
-                                tui::Event::SetWorkshops(workshop_data).into(),
-                                to_ui.clone(),
-                            )
-                            .await?;
-
-                        // show the workshops screen
-                        to_ui
-                            .send(tui::Event::Show(Screens::Workshops).into())
-                            .await?;
-                    } else {
-                        error!("Workshops screen not found");
+                tui::Event::SetWorkshop(workshop) => {
+                    info!("UI event: Workshop set: {:?}", workshop);
+                    {
+                        let mut status = self.status.lock().unwrap();
+                        status.set_workshop(Some(workshop.clone()));
+                        fs::workshops::init_data_dir(&workshop)?;
                     }
+                    to_ui
+                        .send((Some(Screens::Lessons), tui::Event::LoadLessons).into())
+                        .await?;
                 }
-                tui::Event::ShowLicense(text) => {
-                    info!("UI event: Show License for workshop");
-                    if let Some(screen) = self.screens.get_mut(&Screens::License) {
-                        // set the license text
-                        screen
-                            .handle_event(tui::Event::SetLicense(text).into(), to_ui.clone())
-                            .await?;
-
-                        // show the license screen
-                        to_ui
-                            .send(tui::Event::Show(Screens::License).into())
-                            .await?;
-                    } else {
-                        error!("License screen not found");
-                    }
-                }
-                tui::Event::ChangeSpokenLanguage => {
-                    info!("UI event: Change spoken language");
-                    let spoken_languages =
-                        crate::fs::get_workshops_spoken_languages(self.config.data_dir())?;
-                    // send the spoken languages to the spoken language screen
-                    if let Some(screen) = self.screens.get_mut(&Screens::Spoken) {
-                        screen
-                            .handle_event(
-                                tui::Event::SetSpokenLanguages(spoken_languages).into(),
-                                to_ui.clone(),
-                            )
-                            .await?;
-
-                        // show the spoken language selection screen
-                        to_ui.send(tui::Event::Show(Screens::Spoken).into()).await?;
-                    } else {
-                        error!("Spoken language screen not found");
-                    }
-                }
-                tui::Event::SpokenLanguage(spoken_language) => {
-                    info!("UI event: Spoken language set: {:?}", spoken_language);
-                    self.spoken_language = spoken_language;
-                    // send the event to send back if they select "yes"
-                    if let Some(screen) = self.screens.get_mut(&Screens::SpokenSetDefault) {
-                        screen
-                            .handle_event(
-                                tui::Event::SetEvent(Box::new(
-                                    tui::Event::SetDefaultSpokenLanguage(spoken_language),
-                                ))
-                                .into(),
-                                to_ui.clone(),
-                            )
-                            .await?;
-
-                        // show the set as default dialog
-                        to_ui
-                            .send(tui::Event::Show(Screens::SpokenSetDefault).into())
-                            .await?;
-                    } else {
-                        error!("Spoken language set default screen not found");
-                    }
-                }
-                tui::Event::SetDefaultSpokenLanguage(spoken_language) => {
-                    info!(
-                        "UI event: Saving spoken language as default: {:?}",
-                        spoken_language
-                    );
-                    self.config.set_spoken_language(spoken_language)?;
-                }
-                tui::Event::ChangeProgrammingLanguage => {
-                    info!("UI event: Change programming language");
-                    let programming_languages =
-                        crate::fs::get_workshops_programming_languages(self.config.data_dir())?;
-                    // send the programming languages to the programming language screen
-                    if let Some(screen) = self.screens.get_mut(&Screens::Programming) {
-                        screen
-                            .handle_event(
-                                tui::Event::SetProgrammingLanguages(programming_languages).into(),
-                                to_ui.clone(),
-                            )
-                            .await?;
-
-                        // show the programming language selection screen
-                        to_ui
-                            .send(tui::Event::Show(Screens::Programming).into())
-                            .await?;
-                    } else {
-                        error!("Programming language screen not found");
-                    }
-                }
-                tui::Event::SetDefaultProgrammingLanguage(programming_language) => {
-                    info!(
-                        "UI event: Saving programming language as default: {:?}",
-                        programming_language
-                    );
-                    self.config.set_programming_language(programming_language)?;
-                }
-                tui::Event::Homepage(url) => {
-                    info!("UI event: Launching browser with URL: {}", url);
-                    if let Err(e) = webbrowser::open(&url) {
-                        error!("Failed to open browser: {}", e);
-                    }
-                }
-                tui::Event::LoadLessons(workshop_key) => {
-                    info!("UI event: Load lessons for workshop: {}", workshop_key);
-                }
-                */
                 _ => {
                     // pass the event to every screen
                     for screen in Screens::iter() {
@@ -419,7 +317,7 @@ impl App {
         &mut self,
         event: event::Event,
         to_ui: Sender<screens::Event>,
-        status: Status,
+        status: Arc<Mutex<Status>>,
     ) -> Result<(), Error> {
         if let event::Event::Key(key) = event {
             match key.code {
@@ -456,14 +354,16 @@ impl Screen for App {
         &mut self,
         event: screens::Event,
         to_ui: Sender<screens::Event>,
-        status: Status,
+        status: Arc<Mutex<Status>>,
     ) -> Result<(), Error> {
         match event {
             screens::Event::Input(input_event) => {
-                self.handle_input_event(input_event, to_ui, status).await
+                self.handle_input_event(input_event, to_ui, status.clone())
+                    .await
             }
             screens::Event::Ui(screen, ui_event) => {
-                self.handle_ui_event(screen, ui_event, to_ui, status).await
+                self.handle_ui_event(screen, ui_event, to_ui, status.clone())
+                    .await
             }
         }
     }

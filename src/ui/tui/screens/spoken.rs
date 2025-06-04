@@ -13,6 +13,7 @@ use ratatui::{
         Block, Borders, Clear, List, ListState, Padding, Paragraph, StatefulWidget, Widget, Wrap,
     },
 };
+use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc::Sender;
 use tracing::info;
 
@@ -123,16 +124,17 @@ impl Spoken<'_> {
         &mut self,
         event: tui::Event,
         to_ui: Sender<screens::Event>,
-        status: Status,
+        status: Arc<Mutex<Status>>,
     ) -> Result<(), Error> {
         match event {
             tui::Event::ChangeSpokenLanguage => {
                 info!("Changing spoken language");
-                self.set_spoken_languages(
-                    &fs::application::all_spoken_languages()?,
-                    status.spoken_language(),
-                )
-                .await?;
+                let spoken = {
+                    let status = status.lock().unwrap();
+                    status.spoken_language()
+                };
+                self.set_spoken_languages(&fs::application::all_spoken_languages()?, spoken)
+                    .await?;
                 to_ui
                     .send((None, tui::Event::Show(screens::Screens::Spoken)).into())
                     .await?;
@@ -149,7 +151,7 @@ impl Spoken<'_> {
         &mut self,
         event: event::Event,
         to_ui: Sender<screens::Event>,
-        _status: Status,
+        _status: Arc<Mutex<Status>>,
     ) -> Result<(), Error> {
         if let event::Event::Key(key) = event {
             match key.code {
@@ -200,7 +202,7 @@ impl Screen for Spoken<'_> {
         &mut self,
         event: screens::Event,
         to_ui: Sender<screens::Event>,
-        status: Status,
+        status: Arc<Mutex<Status>>,
     ) -> Result<(), Error> {
         match event {
             screens::Event::Input(input_event) => {

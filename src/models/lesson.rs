@@ -11,6 +11,7 @@ use std::{
     sync::Arc,
 };
 use tokio::sync::RwLock;
+use tracing::info;
 
 /// Represents the status of a Lesson
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
@@ -86,7 +87,7 @@ impl LessonData {
     }
 
     /// returns the lesson text
-    pub async fn get_lesson_text(&self) -> Result<String, Error> {
+    pub async fn get_text(&self) -> Result<String, Error> {
         let mut lesson_text = self
             .lesson_text
             .write() // get a write lock on the Arc<RwLock<LazyLoader<String>>>
@@ -95,7 +96,7 @@ impl LessonData {
         lesson_text.try_load().await.cloned()
     }
 
-    /// returns the metadata for the workshop in the given spoken language
+    /// returns the metadata for the lesson
     pub async fn get_metadata(&self) -> Result<Lesson, Error> {
         let mut metadata = self
             .metadata
@@ -112,6 +113,10 @@ impl TryLoad for LessonData {
 
     async fn try_load(path: &Path) -> Result<Self, Self::Error> {
         // try to get the spoken and programming languages from the path
+        info!(
+            "Getting name, spoken, and programming from path: {}",
+            path.display()
+        );
         let (name, spoken_language, programming_language) = {
             let mut path = path.to_path_buf();
             let name = path
@@ -120,15 +125,21 @@ impl TryLoad for LessonData {
                 .ok_or::<Error>(ModelError::LessonDataDirNotFound.into())?
                 .to_string();
             path.pop();
-            let spoken_language = path
-                .file_name()
-                .and_then(|p| spoken::Code::try_from(p.to_string_lossy().as_ref()).ok())
-                .ok_or::<Error>(ModelError::NoSpokenLanguageSpecified.into())?;
-            path.pop();
+            info!("Lesson name: {name}, rest: {}", path.display());
             let programming_language = path
                 .file_name()
                 .and_then(|p| programming::Code::try_from(p.to_string_lossy().as_ref()).ok())
                 .ok_or::<Error>(ModelError::NoProgrammingLanguageSpecified.into())?;
+            info!("Programming language: {programming_language}");
+            path.pop();
+            let spoken_language = path
+                .file_name()
+                .and_then(|p| spoken::Code::try_from(p.to_string_lossy().as_ref()).ok())
+                .ok_or::<Error>(ModelError::NoSpokenLanguageSpecified.into())?;
+            info!(
+                "Spoken language: {spoken_language}, rest: {}",
+                path.display()
+            );
             (name, spoken_language, programming_language)
         };
 

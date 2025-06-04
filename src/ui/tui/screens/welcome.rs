@@ -9,6 +9,7 @@ use ratatui::{
     style::{Color, Style},
     widgets::{Block, Borders, Clear, Padding, Paragraph, Widget, Wrap},
 };
+use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc::Sender;
 
 #[derive(Clone, Debug)]
@@ -90,7 +91,7 @@ impl Screen for Welcome<'_> {
         &mut self,
         event: screens::Event,
         to_ui: Sender<screens::Event>,
-        _status: Status,
+        _status: Arc<Mutex<Status>>,
     ) -> Result<(), Error> {
         if let screens::Event::Input(event::Event::Key(key)) = event {
             if key.code == KeyCode::Enter {

@@ -13,6 +13,7 @@ use ratatui::{
         Block, Borders, Clear, List, ListState, Padding, Paragraph, StatefulWidget, Widget, Wrap,
     },
 };
+use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc::Sender;
 use tracing::info;
 
@@ -124,14 +125,18 @@ impl Programming<'_> {
         &mut self,
         event: tui::Event,
         to_ui: Sender<screens::Event>,
-        status: Status,
+        status: Arc<Mutex<Status>>,
     ) -> Result<(), Error> {
         match event {
             tui::Event::ChangeProgrammingLanguage => {
                 info!("Changing programming language");
+                let programming = {
+                    let status = status.lock().unwrap();
+                    status.programming_language()
+                };
                 self.set_programming_languages(
                     &fs::application::all_programming_languages()?,
-                    status.programming_language(),
+                    programming,
                 )
                 .await?;
                 to_ui
@@ -150,7 +155,7 @@ impl Programming<'_> {
         &mut self,
         event: event::Event,
         to_ui: Sender<screens::Event>,
-        _status: Status,
+        _status: Arc<Mutex<Status>>,
     ) -> Result<(), Error> {
         if let event::Event::Key(key) = event {
             match key.code {
@@ -204,7 +209,7 @@ impl Screen for Programming<'_> {
         &mut self,
         event: screens::Event,
         to_ui: Sender<screens::Event>,
-        status: Status,
+        status: Arc<Mutex<Status>>,
     ) -> Result<(), Error> {
         match event {
             screens::Event::Input(input_event) => {

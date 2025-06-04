@@ -11,7 +11,10 @@ use ratatui::{
     text::Line,
     widgets::{Block, Borders, Clear, Padding, Paragraph, StatefulWidget, Widget, Wrap},
 };
-use std::collections::VecDeque;
+use std::{
+    collections::VecDeque,
+    sync::{Arc, Mutex},
+};
 use tokio::sync::mpsc::Sender;
 use tracing::info;
 
@@ -47,14 +50,6 @@ impl Log<'_> {
             centered: Rect::default(),
             spoken_language: None,
         }
-    }
-
-    async fn set_spoken_language(
-        &mut self,
-        spoken_language: Option<spoken::Code>,
-    ) -> Result<(), Error> {
-        self.spoken_language = spoken_language;
-        Ok(())
     }
 
     fn recalculate_rect(&mut self, area: Rect) {
@@ -133,7 +128,7 @@ impl Log<'_> {
         &mut self,
         event: tui::Event,
         _to_ui: Sender<screens::Event>,
-        _status: Status,
+        _status: Arc<Mutex<Status>>,
     ) -> Result<(), Error> {
         match event {
             tui::Event::Log(msg) => {
@@ -151,7 +146,7 @@ impl Log<'_> {
         &mut self,
         event: event::Event,
         to_ui: Sender<screens::Event>,
-        _status: Status,
+        _status: Arc<Mutex<Status>>,
     ) -> Result<(), Error> {
         if let event::Event::Key(key) = event {
             match key.code {
@@ -176,10 +171,17 @@ impl Screen for Log<'_> {
         &mut self,
         event: screens::Event,
         to_ui: Sender<screens::Event>,
-        status: Status,
+        status: Arc<Mutex<Status>>,
     ) -> Result<(), Error> {
         match event {
             screens::Event::Input(input_event) => {
+                let spoken = {
+                    let status = status.lock().unwrap();
+                    status.spoken_language()
+                };
+                if self.spoken_language != spoken {
+                    self.spoken_language = spoken
+                }
                 self.handle_input_event(input_event, to_ui, status).await
             }
             screens::Event::Ui(_, ui_event) => self.handle_ui_event(ui_event, to_ui, status).await,
