@@ -1,3 +1,5 @@
+pub mod lesson;
+pub use lesson::Lesson;
 pub mod lessons;
 pub use lessons::Lessons;
 pub mod license;
@@ -37,11 +39,12 @@ pub enum Screens {
     Programming,
     SetDefault,
     Lessons,
+    Lesson,
 }
 
 impl Screens {
     pub fn iter() -> impl Iterator<Item = Screens> {
-        (0..=7).map(Screens::from)
+        (0..=8).map(Screens::from)
     }
 }
 
@@ -56,6 +59,7 @@ impl fmt::Display for Screens {
             Screens::Programming => write!(f, "Programming"),
             Screens::SetDefault => write!(f, "Set Default"),
             Screens::Lessons => write!(f, "Lessons"),
+            Screens::Lesson => write!(f, "Lesson"),
         }
     }
 }
@@ -77,6 +81,7 @@ impl From<u8> for Screens {
             5 => Screens::Programming,
             6 => Screens::SetDefault,
             7 => Screens::Lessons,
+            8 => Screens::Lesson,
             _ => panic!("Invalid screen value"),
         }
     }

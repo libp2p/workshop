@@ -17,7 +17,7 @@ pub enum Event {
     /// load the workshops
     LoadWorkshops,
     /// set the workshop
-    SetWorkshop(String),
+    SetWorkshop(Option<String>),
     /// load the license for a workshop
     ShowLicense(String),
     /// change the spoken language
@@ -33,5 +33,13 @@ pub enum Event {
     /// load lessons
     LoadLessons,
     /// set the lesson
-    SetLesson(String),
+    SetLesson(Option<String>),
+    /// load the selected lesson
+    LoadLesson,
+    /// check the solutionto the lesson
+    CheckSolution,
+    /// the solution is a success
+    SolutionSuccess,
+    /// the solution is a failure
+    SolutionFailure,
 }

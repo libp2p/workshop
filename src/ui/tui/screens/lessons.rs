@@ -108,47 +108,63 @@ impl Lessons<'_> {
         Ok(())
     }
 
-    // select first lesson
-    async fn select_first(&mut self) -> Result<(), Error> {
-        if !self.lessons.is_empty() {
-            self.titles_state.select(Some(0));
-            self.cache_selected().await?;
+    async fn first(&mut self) -> Result<(), Error> {
+        match self.focused {
+            FocusedView::List => {
+                if !self.lessons.is_empty() {
+                    self.titles_state.select(Some(0));
+                    self.cache_selected().await?;
+                }
+            }
+            FocusedView::Info => self.st.scroll_top(),
         }
         Ok(())
     }
 
-    // select last lesson
-    async fn select_last(&mut self) -> Result<(), Error> {
-        if !self.lessons.is_empty() {
-            let last_index = self.lessons.len() - 1;
-            self.titles_state.select(Some(last_index));
-            self.cache_selected().await?;
+    async fn last(&mut self) -> Result<(), Error> {
+        match self.focused {
+            FocusedView::List => {
+                if !self.lessons.is_empty() {
+                    let last_index = self.lessons.len() - 1;
+                    self.titles_state.select(Some(last_index));
+                    self.cache_selected().await?;
+                }
+            }
+            FocusedView::Info => self.st.scroll_bottom(),
         }
         Ok(())
     }
 
-    // select next lesson
-    async fn select_next(&mut self) -> Result<(), Error> {
-        if !self.lessons.is_empty() {
-            let selected_index = self.titles_state.selected().unwrap_or(0);
-            let next_index = (selected_index + 1).min(self.lessons.len() - 1);
-            self.titles_state.select(Some(next_index));
-            self.cache_selected().await?;
+    async fn next(&mut self) -> Result<(), Error> {
+        match self.focused {
+            FocusedView::List => {
+                if !self.lessons.is_empty() {
+                    let selected_index = self.titles_state.selected().unwrap_or(0);
+                    let next_index = (selected_index + 1).min(self.lessons.len() - 1);
+                    self.titles_state.select(Some(next_index));
+                    self.cache_selected().await?;
+                }
+            }
+            FocusedView::Info => self.st.scroll_down(),
         }
         Ok(())
     }
 
-    // select previous lesson
-    async fn select_prev(&mut self) -> Result<(), Error> {
-        if !self.lessons.is_empty() {
-            let selected_index = self.titles_state.selected().unwrap_or(0);
-            let prev_index = if selected_index > 0 {
-                selected_index - 1
-            } else {
-                0
-            };
-            self.titles_state.select(Some(prev_index));
-            self.cache_selected().await?;
+    async fn prev(&mut self) -> Result<(), Error> {
+        match self.focused {
+            FocusedView::List => {
+                if !self.lessons.is_empty() {
+                    let selected_index = self.titles_state.selected().unwrap_or(0);
+                    let prev_index = if selected_index > 0 {
+                        selected_index - 1
+                    } else {
+                        0
+                    };
+                    self.titles_state.select(Some(prev_index));
+                    self.cache_selected().await?;
+                }
+            }
+            FocusedView::Info => self.st.scroll_up(),
         }
         Ok(())
     }
@@ -239,7 +255,7 @@ impl Lessons<'_> {
             .padding(Padding::horizontal(1));
 
         let keys = Paragraph::new(
-            "↓/↑ or j/k: scroll  |  tab: switch focus  |  enter: select  |  q: quit",
+            "↓/↑ or j/k: scroll  |  tab: switch focus  |  enter: select  |  b: back  |  q: quit",
         )
         .block(block)
         .style(Style::default().fg(Color::Black).bg(Color::White))
@@ -323,33 +339,13 @@ impl Lessons<'_> {
     ) -> Result<(), Error> {
         if let event::Event::Key(key) = event {
             match key.code {
-                KeyCode::PageUp => match self.focused {
-                    FocusedView::List => {
-                        self.select_first().await?;
-                    }
-                    FocusedView::Info => self.st.scroll_top(),
-                },
-                KeyCode::PageDown => match self.focused {
-                    FocusedView::List => {
-                        self.select_last().await?;
-                    }
-                    FocusedView::Info => self.st.scroll_bottom(),
-                },
-                KeyCode::Char('j') | KeyCode::Char('J') | KeyCode::Down => match self.focused {
-                    FocusedView::List => {
-                        self.select_next().await?;
-                    }
-                    FocusedView::Info => self.st.scroll_down(),
-                },
-                KeyCode::Char('k') | KeyCode::Char('K') | KeyCode::Up => match self.focused {
-                    FocusedView::List => {
-                        self.select_prev().await?;
-                    }
-                    FocusedView::Info => self.st.scroll_up(),
-                },
+                KeyCode::PageUp => self.first().await?,
+                KeyCode::PageDown => self.last().await?,
+                KeyCode::Char('j') | KeyCode::Char('J') | KeyCode::Down => self.next().await?,
+                KeyCode::Char('k') | KeyCode::Char('K') | KeyCode::Up => self.prev().await?,
                 KeyCode::Char('b') | KeyCode::Esc => {
                     to_ui
-                        .send((Some(screens::Screens::Workshops), tui::Event::LoadWorkshops).into())
+                        .send((None, tui::Event::SetWorkshop(None)).into())
                         .await?;
                 }
                 KeyCode::Tab => {
@@ -360,12 +356,9 @@ impl Lessons<'_> {
                     };
                 }
                 KeyCode::Enter => {
-                    if let Some(lesson_key) = self.get_selected_lesson_key() {
-                        info!("Selected lesson: {}", lesson_key);
-                        to_ui
-                            .send((None, tui::Event::SetLesson(lesson_key)).into())
-                            .await?;
-                    }
+                    to_ui
+                        .send((None, tui::Event::SetLesson(self.get_selected_lesson_key())).into())
+                        .await?;
                 }
                 _ => {}
             }
@@ -393,7 +386,7 @@ impl Screen for Lessons<'_> {
     fn render_screen(&mut self, area: Rect, buf: &mut Buffer) -> Result<(), Error> {
         // this splits the screen into a top area and a one-line bottom area
         let [lessons_area, status_area] =
-            Layout::vertical([Constraint::Percentage(100), Constraint::Min(2)])
+            Layout::vertical([Constraint::Percentage(100), Constraint::Min(1)])
                 .flex(Flex::End)
                 .areas(area);
 

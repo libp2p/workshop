@@ -71,6 +71,11 @@ impl Status {
         self.workshop.clone()
     }
 
+    /// Get the selected lesson
+    pub fn lesson(&self) -> Option<String> {
+        self.lesson.clone()
+    }
+
     /// Set the spoken language with optional default
     pub fn set_spoken_language(&mut self, spoken_language: Option<spoken::Code>, default: bool) {
         self.spoken_language = spoken_language;
@@ -94,5 +99,10 @@ impl Status {
     /// Set the selected workshop
     pub fn set_workshop(&mut self, workshop: Option<String>) {
         self.workshop = workshop;
+    }
+
+    /// Set the selected lesson
+    pub fn set_lesson(&mut self, lesson: Option<String>) {
+        self.lesson = lesson;
     }
 }

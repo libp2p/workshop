@@ -98,6 +98,9 @@ impl App {
         // Lessons Screen
         screens.insert(Screens::Lessons, Box::new(screens::Lessons::default()));
 
+        // Lesson Screen
+        screens.insert(Screens::Lesson, Box::new(screens::Lesson::default()));
+
         info!("screens created: {:?}", screens.keys());
         screens
     }
@@ -110,10 +113,33 @@ impl App {
         // initialize the input event stream
         let mut reader = EventStream::new();
 
-        // initialize the workshops screen
-        self.sender
-            .send((Some(Screens::Workshops), tui::Event::LoadWorkshops).into())
-            .await?;
+        // initialize the state
+        let (workshop, lesson) = {
+            let status = self
+                .status
+                .lock()
+                .map_err(|e| Error::StatusLock(e.to_string()))?;
+            (status.workshop(), status.lesson())
+        };
+
+        // send the correct initial message to restore the state
+        match (workshop, lesson) {
+            (None, _) => {
+                self.sender
+                    .send((Some(Screens::Workshops), tui::Event::LoadWorkshops).into())
+                    .await?;
+            }
+            (Some(_), None) => {
+                self.sender
+                    .send((Some(Screens::Lessons), tui::Event::LoadLessons).into())
+                    .await?;
+            }
+            (Some(_), Some(_)) => {
+                self.sender
+                    .send((Some(Screens::Lesson), tui::Event::LoadLesson).into())
+                    .await?;
+            }
+        }
 
         'run: loop {
             let input_event = reader.next().fuse();
@@ -282,14 +308,48 @@ impl App {
                 }
                 tui::Event::SetWorkshop(workshop) => {
                     info!("UI event: Workshop set: {:?}", workshop);
-                    {
-                        let mut status = self.status.lock().unwrap();
-                        status.set_workshop(Some(workshop.clone()));
-                        fs::workshops::init_data_dir(&workshop)?;
+                    if let Some(workshop) = workshop {
+                        info!("Setting workshop: {:?}", workshop);
+                        {
+                            let mut status = self.status.lock().unwrap();
+                            status.set_workshop(Some(workshop.clone()));
+                            fs::workshops::init_data_dir(&workshop)?;
+                        }
+                        to_ui
+                            .send((Some(Screens::Lessons), tui::Event::LoadLessons).into())
+                            .await?;
+                    } else {
+                        info!("Clearing workshop");
+                        {
+                            let mut status = self.status.lock().unwrap();
+                            status.set_workshop(None);
+                        }
+                        to_ui
+                            .send((Some(Screens::Workshops), tui::Event::LoadWorkshops).into())
+                            .await?;
                     }
-                    to_ui
-                        .send((Some(Screens::Lessons), tui::Event::LoadLessons).into())
-                        .await?;
+                }
+                tui::Event::SetLesson(lesson) => {
+                    info!("UI event: Lesson set: {:?}", lesson);
+                    if let Some(lesson) = lesson {
+                        info!("Setting lesson: {:?}", lesson);
+                        {
+                            let mut status = self.status.lock().unwrap();
+                            status.set_lesson(Some(lesson.clone()));
+                        }
+                        to_ui
+                            .send((Some(Screens::Lesson), tui::Event::LoadLesson).into())
+                            .await?;
+                    } else {
+                        info!("Clearing lesson");
+                        {
+                            let mut status = self.status.lock().unwrap();
+                            status.set_lesson(None);
+                        }
+                        to_ui
+                            .send((Some(Screens::Lessons), tui::Event::LoadLessons).into())
+                            .await?;
+                    }
                 }
                 _ => {
                     // pass the event to every screen
