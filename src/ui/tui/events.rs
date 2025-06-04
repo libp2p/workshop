@@ -29,7 +29,7 @@ pub enum Event {
     /// set the default programming language
     SetProgrammingLanguage(Option<programming::Code>, Option<bool>),
     /// initialize the "set default" dialog
-    SetDefault(String, Option<Box<Event>>),
+    SetDefault(String, Option<Box<Event>>, Option<Box<Event>>),
     /// load lessons
     LoadLessons,
     /// set the lesson

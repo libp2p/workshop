@@ -29,7 +29,9 @@ pub struct SetDefault<'a> {
     /// programming language list state
     list_state: ListState,
     /// event to send if they select "yes"
-    event: Option<Box<tui::Event>>,
+    yes: Option<Box<tui::Event>>,
+    /// event to send if they select "no"
+    no: Option<Box<tui::Event>>,
     /// the currently selected spoken language
     spoken_language: Option<spoken::Code>,
 }
@@ -39,11 +41,13 @@ impl SetDefault<'_> {
         &mut self,
         title: &str,
         spoken_language: Option<spoken::Code>,
-        event: Option<Box<tui::Event>>,
+        yes: Option<Box<tui::Event>>,
+        no: Option<Box<tui::Event>>,
     ) -> Result<(), Error> {
         self.title = title.to_string();
         self.spoken_language = spoken_language;
-        self.event = event;
+        self.yes = yes;
+        self.no = no;
 
         self.list_state.select(Some(0));
         self.list = List::new(vec!["Yes", "No"])
@@ -115,13 +119,13 @@ impl SetDefault<'_> {
         status: Arc<Mutex<Status>>,
     ) -> Result<(), Error> {
         match event {
-            tui::Event::SetDefault(title, event) => {
+            tui::Event::SetDefault(title, yes, no) => {
                 info!("Set as default?");
                 let spoken = {
                     let status = status.lock().unwrap();
                     status.spoken_language()
                 };
-                self.init(&title, spoken, event).await?;
+                self.init(&title, spoken, yes, no).await?;
                 info!("Showing SetDefault screen");
                 to_ui
                     .send((None, tui::Event::Show(screens::Screens::SetDefault)).into())
@@ -149,21 +153,16 @@ impl SetDefault<'_> {
                 KeyCode::Enter => {
                     match self.list_state.selected() {
                         Some(0) => {
-                            if let Some(event) = self.event.take() {
+                            if let Some(event) = self.yes.take() {
                                 info!("Setting default: {:?}", event);
                                 to_ui.send((None, *event).into()).await?;
-                            } else {
-                                info!("No event to send");
                             }
                         }
                         Some(_) | None => {
-                            info!("Back to previous screen");
-                            to_ui
-                                .send(
-                                    (Some(screens::Screens::Workshops), tui::Event::LoadWorkshops)
-                                        .into(),
-                                )
-                                .await?;
+                            if let Some(event) = self.no.take() {
+                                info!("Clearing default: {:?}", event);
+                                to_ui.send((None, *event).into()).await?;
+                            }
                         }
                     };
                 }

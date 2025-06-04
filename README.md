@@ -1,5 +1,7 @@
 # Workshop Tool
 
+![Workshop Demo](https://raw.githubusercontent.com/dhuseby/workshop/main/workshop.gif)
+
 A command-line tool for managing and running programming workshops. This application provides a Terminal User Interface (TUI) for browsing and completing workshops with interactive lessons.
 
 ## Features

@@ -229,7 +229,10 @@ impl App {
                 tui::Event::SetSpokenLanguage(spoken_language, default) => {
                     info!("UI event: Spoken language set: {:?}", spoken_language);
                     if let Some(default) = default {
-                        info!("Setting spoken language as default: {:?}", spoken_language);
+                        info!(
+                            "Setting spoken language as default: {:?}, {}",
+                            spoken_language, default
+                        );
                         {
                             let mut status = self.status.lock().unwrap();
                             status.set_spoken_language(spoken_language, default);
@@ -256,6 +259,10 @@ impl App {
                                             spoken_language,
                                             Some(true),
                                         ))),
+                                        Some(Box::new(tui::Event::SetSpokenLanguage(
+                                            spoken_language,
+                                            Some(false),
+                                        ))),
                                     ),
                                 )
                                     .into(),
@@ -270,8 +277,8 @@ impl App {
                     );
                     if let Some(default) = default {
                         info!(
-                            "Setting programming language as default: {:?}",
-                            programming_language
+                            "Setting programming language as default: {:?}, {}",
+                            programming_language, default
                         );
                         {
                             let mut status = self.status.lock().unwrap();
@@ -298,6 +305,10 @@ impl App {
                                         Some(Box::new(tui::Event::SetProgrammingLanguage(
                                             programming_language,
                                             Some(true),
+                                        ))),
+                                        Some(Box::new(tui::Event::SetProgrammingLanguage(
+                                            programming_language,
+                                            Some(false),
                                         ))),
                                     ),
                                 )
