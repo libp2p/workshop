@@ -1,7 +1,7 @@
 use crate::{
     languages::spoken,
     ui::tui::{self, screens, Screen},
-    Error,
+    Error, Status,
 };
 use crossterm::event::{self, KeyCode};
 use ratatui::{
@@ -15,8 +15,10 @@ use ratatui::{
 use tokio::sync::mpsc::Sender;
 use tracing::info;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct SetDefault<'a> {
+    /// the title
+    title: String,
     /// the cached rect from last render
     area: Rect,
     /// the cached calculated rect
@@ -26,20 +28,27 @@ pub struct SetDefault<'a> {
     /// programming language list state
     list_state: ListState,
     /// event to send if they select "yes"
-    event: tui::Event,
+    event: Option<Box<tui::Event>>,
     /// the currently selected spoken language
     spoken_language: Option<spoken::Code>,
 }
 
 impl SetDefault<'_> {
-    /// create a new yes/no dialog
-    pub fn new(question: &str) -> Self {
-        let mut list_state = ListState::default();
-        list_state.select(Some(0));
-        let list = List::new(vec!["Yes", "No"])
+    async fn init(
+        &mut self,
+        title: &str,
+        spoken_language: Option<spoken::Code>,
+        event: Option<Box<tui::Event>>,
+    ) -> Result<(), Error> {
+        self.title = title.to_string();
+        self.spoken_language = spoken_language;
+        self.event = event;
+
+        self.list_state.select(Some(0));
+        self.list = List::new(vec!["Yes", "No"])
             .block(
                 Block::default()
-                    .title(format!(" {} ", question))
+                    .title(format!(" {} ", self.title))
                     .padding(Padding::horizontal(1))
                     .style(Style::default().fg(Color::White))
                     .borders(Borders::ALL),
@@ -53,26 +62,6 @@ impl SetDefault<'_> {
             .style(Style::default().fg(Color::White))
             .highlight_symbol("> ");
 
-        Self {
-            area: Rect::default(),
-            centered: Rect::default(),
-            list,
-            list_state,
-            event: tui::Event::Show(screens::Screens::Workshops),
-            spoken_language: None,
-        }
-    }
-
-    async fn set_spoken_language(
-        &mut self,
-        spoken_language: Option<spoken::Code>,
-    ) -> Result<(), Error> {
-        self.spoken_language = spoken_language;
-        Ok(())
-    }
-
-    async fn set_event(&mut self, event: tui::Event) -> Result<(), Error> {
-        self.event = event;
         Ok(())
     }
 
@@ -121,16 +110,17 @@ impl SetDefault<'_> {
     pub async fn handle_ui_event(
         &mut self,
         event: tui::Event,
-        _to_ui: Sender<screens::Event>,
+        to_ui: Sender<screens::Event>,
+        status: Status,
     ) -> Result<(), Error> {
         match event {
-            tui::Event::SpokenLanguage(spoken_language) => {
-                info!("Spoken language set: {:?}", spoken_language);
-                self.set_spoken_language(spoken_language).await?;
-            }
-            tui::Event::SetEvent(event) => {
-                info!("Setting event: {:?}", event);
-                self.set_event(*event).await?;
+            tui::Event::SetDefault(title, event) => {
+                info!("Set as default?");
+                self.init(&title, status.spoken_language(), event).await?;
+                info!("Showing SetDefault screen");
+                to_ui
+                    .send((None, tui::Event::Show(screens::Screens::SetDefault)).into())
+                    .await?;
             }
             _ => {
                 info!("Ignoring UI event: {:?}", event);
@@ -144,7 +134,9 @@ impl SetDefault<'_> {
         &mut self,
         event: event::Event,
         to_ui: Sender<screens::Event>,
+        _status: Status,
     ) -> Result<(), Error> {
+        info!("SetDefault input event: {:?}", event);
         if let event::Event::Key(key) = event {
             match key.code {
                 KeyCode::Char('j') | KeyCode::Down => self.list_state.select_next(),
@@ -152,12 +144,21 @@ impl SetDefault<'_> {
                 KeyCode::Enter => {
                     match self.list_state.selected() {
                         Some(0) => {
-                            info!("Setting default");
-                            to_ui.send(self.event.clone().into()).await?;
+                            if let Some(event) = self.event.take() {
+                                info!("Setting default: {:?}", event);
+                                to_ui.send((None, *event).into()).await?;
+                            } else {
+                                info!("No event to send");
+                            }
                         }
                         Some(_) | None => {
                             info!("Back to previous screen");
-                            to_ui.send(tui::Event::LoadWorkshops.into()).await?;
+                            to_ui
+                                .send(
+                                    (Some(screens::Screens::Workshops), tui::Event::LoadWorkshops)
+                                        .into(),
+                                )
+                                .await?;
                         }
                     };
                 }
@@ -174,10 +175,13 @@ impl Screen for SetDefault<'_> {
         &mut self,
         event: screens::Event,
         to_ui: Sender<screens::Event>,
+        status: Status,
     ) -> Result<(), Error> {
         match event {
-            screens::Event::Input(input_event) => self.handle_input_event(input_event, to_ui).await,
-            screens::Event::Ui(ui_event) => self.handle_ui_event(ui_event, to_ui).await,
+            screens::Event::Input(input_event) => {
+                self.handle_input_event(input_event, to_ui, status).await
+            }
+            screens::Event::Ui(_, ui_event) => self.handle_ui_event(ui_event, to_ui, status).await,
         }
     }
 

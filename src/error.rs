@@ -30,6 +30,10 @@ pub enum Error {
     #[error(transparent)]
     Fs(#[from] crate::fs::Error),
 
+    /// Config mutex lock error
+    #[error("Config mutex lock error")]
+    ConfigLockError,
+
     /// TUI error
     #[error("TUI error: {0}")]
     Tui(String),

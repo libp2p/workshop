@@ -1,6 +1,6 @@
 use crate::{
     ui::tui::{self, screens, Screen},
-    Error,
+    Error, Status,
 };
 use crossterm::event::{self, KeyCode};
 use ratatui::{
@@ -90,10 +90,13 @@ impl Screen for Welcome<'_> {
         &mut self,
         event: screens::Event,
         to_ui: Sender<screens::Event>,
+        _status: Status,
     ) -> Result<(), Error> {
         if let screens::Event::Input(event::Event::Key(key)) = event {
             if key.code == KeyCode::Enter {
-                to_ui.send(tui::Event::LoadWorkshops.into()).await?;
+                to_ui
+                    .send((Some(screens::Screens::Workshops), tui::Event::LoadWorkshops).into())
+                    .await?;
             }
         }
         Ok(())

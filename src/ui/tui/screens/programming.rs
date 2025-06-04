@@ -1,7 +1,8 @@
 use crate::{
+    fs,
     languages::programming,
     ui::tui::{self, screens, Screen},
-    Error,
+    Error, Status,
 };
 use crossterm::event::{self, KeyCode};
 use ratatui::{
@@ -36,8 +37,10 @@ impl Programming<'_> {
     async fn set_programming_languages(
         &mut self,
         programming_languages: &[programming::Code],
+        programming_language: Option<programming::Code>,
     ) -> Result<(), Error> {
         self.programming_languages = programming_languages.to_vec();
+        self.programming_language = programming_language;
 
         let mut programming_language_names = vec!["Any".to_string()];
         programming_language_names.extend(
@@ -70,22 +73,6 @@ impl Programming<'_> {
             )
             .style(Style::default().fg(Color::White))
             .highlight_symbol("> ");
-        Ok(())
-    }
-
-    async fn set_programming_language(
-        &mut self,
-        programming_language: Option<programming::Code>,
-    ) -> Result<(), Error> {
-        self.programming_language = programming_language;
-        let select_index = match programming_language {
-            Some(code) => match self.programming_languages.iter().position(|&c| c == code) {
-                Some(index) => Some(index + 1),
-                None => Some(0),
-            },
-            None => Some(0),
-        };
-        self.list_state.select(select_index);
         Ok(())
     }
 
@@ -136,16 +123,19 @@ impl Programming<'_> {
     pub async fn handle_ui_event(
         &mut self,
         event: tui::Event,
-        _to_ui: Sender<screens::Event>,
+        to_ui: Sender<screens::Event>,
+        status: Status,
     ) -> Result<(), Error> {
         match event {
-            tui::Event::ProgrammingLanguage(programming_language) => {
-                info!("programming language set: {:?}", programming_language);
-                self.set_programming_language(programming_language).await?;
-            }
-            tui::Event::SetProgrammingLanguages(ref programming_languages) => {
-                info!("Setting programming languages: {:?}", programming_languages);
-                self.set_programming_languages(programming_languages)
+            tui::Event::ChangeProgrammingLanguage => {
+                info!("Changing programming language");
+                self.set_programming_languages(
+                    &fs::application::all_programming_languages()?,
+                    status.programming_language(),
+                )
+                .await?;
+                to_ui
+                    .send((None, tui::Event::Show(screens::Screens::Programming)).into())
                     .await?;
             }
             _ => {
@@ -160,14 +150,16 @@ impl Programming<'_> {
         &mut self,
         event: event::Event,
         to_ui: Sender<screens::Event>,
+        _status: Status,
     ) -> Result<(), Error> {
         if let event::Event::Key(key) = event {
             match key.code {
                 KeyCode::PageUp => self.list_state.select_first(),
                 KeyCode::PageDown => self.list_state.select_last(),
                 KeyCode::Char('b') | KeyCode::Esc => {
-                    info!("Back to previous screen");
-                    to_ui.send(tui::Event::LoadWorkshops.into()).await?;
+                    to_ui
+                        .send((Some(screens::Screens::Workshops), tui::Event::LoadWorkshops).into())
+                        .await?;
                 }
                 KeyCode::Char('j') | KeyCode::Down => self.list_state.select_next(),
                 KeyCode::Char('k') | KeyCode::Up => self.list_state.select_previous(),
@@ -189,7 +181,13 @@ impl Programming<'_> {
                             }
                         };
                         to_ui
-                            .send(tui::Event::ProgrammingLanguage(programming_language).into())
+                            .send(
+                                (
+                                    None,
+                                    tui::Event::SetProgrammingLanguage(programming_language, None),
+                                )
+                                    .into(),
+                            )
                             .await?;
                     }
                 }
@@ -206,10 +204,13 @@ impl Screen for Programming<'_> {
         &mut self,
         event: screens::Event,
         to_ui: Sender<screens::Event>,
+        status: Status,
     ) -> Result<(), Error> {
         match event {
-            screens::Event::Input(input_event) => self.handle_input_event(input_event, to_ui).await,
-            screens::Event::Ui(ui_event) => self.handle_ui_event(ui_event, to_ui).await,
+            screens::Event::Input(input_event) => {
+                self.handle_input_event(input_event, to_ui, status).await
+            }
+            screens::Event::Ui(_, ui_event) => self.handle_ui_event(ui_event, to_ui, status).await,
         }
     }
 

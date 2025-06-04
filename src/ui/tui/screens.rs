@@ -15,7 +15,7 @@ pub use welcome::Welcome;
 pub mod workshops;
 pub use workshops::Workshops;
 
-use crate::{ui::tui, Error};
+use crate::{ui::tui, Error, Status};
 use crossterm::event;
 use ratatui::{buffer::Buffer, layout::Rect};
 use std::fmt;
@@ -23,17 +23,23 @@ use tokio::sync::mpsc::Sender;
 
 /// The screens
 #[repr(u8)]
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
 pub enum Screens {
+    #[default]
     Welcome,
     Workshops,
     Log,
     License,
     Spoken,
-    SpokenSetDefault,
     Programming,
-    ProgrammingSetDefault,
+    SetDefault,
     Lessons,
+}
+
+impl Screens {
+    pub fn iter() -> impl Iterator<Item = Screens> {
+        (0..=7).map(Screens::from)
+    }
 }
 
 impl fmt::Display for Screens {
@@ -44,9 +50,8 @@ impl fmt::Display for Screens {
             Screens::Log => write!(f, "Log"),
             Screens::License => write!(f, "License"),
             Screens::Spoken => write!(f, "Spoken"),
-            Screens::SpokenSetDefault => write!(f, "Spoken Set Default"),
             Screens::Programming => write!(f, "Programming"),
-            Screens::ProgrammingSetDefault => write!(f, "Programming Set Default"),
+            Screens::SetDefault => write!(f, "Set Default"),
             Screens::Lessons => write!(f, "Lessons"),
         }
     }
@@ -66,10 +71,9 @@ impl From<u8> for Screens {
             2 => Screens::Log,
             3 => Screens::License,
             4 => Screens::Spoken,
-            5 => Screens::SpokenSetDefault,
-            6 => Screens::Programming,
-            7 => Screens::ProgrammingSetDefault,
-            8 => Screens::Lessons,
+            5 => Screens::Programming,
+            6 => Screens::SetDefault,
+            7 => Screens::Lessons,
             _ => panic!("Invalid screen value"),
         }
     }
@@ -79,7 +83,7 @@ impl From<u8> for Screens {
 #[derive(Clone, Debug)]
 pub enum Event {
     Input(event::Event),
-    Ui(tui::Event),
+    Ui(Option<Screens>, tui::Event),
 }
 
 impl From<event::Event> for Event {
@@ -88,9 +92,9 @@ impl From<event::Event> for Event {
     }
 }
 
-impl From<tui::Event> for Event {
-    fn from(event: tui::Event) -> Self {
-        Event::Ui(event)
+impl From<(Option<Screens>, tui::Event)> for Event {
+    fn from(tuple: (Option<Screens>, tui::Event)) -> Self {
+        Event::Ui(tuple.0, tuple.1)
     }
 }
 
@@ -98,7 +102,12 @@ impl From<tui::Event> for Event {
 #[async_trait::async_trait]
 pub trait Screen: Send + Sync {
     /// Handle an event
-    async fn handle_event(&mut self, event: Event, to_ui: Sender<Event>) -> Result<(), Error>;
+    async fn handle_event(
+        &mut self,
+        event: Event,
+        to_ui: Sender<Event>,
+        status: Status,
+    ) -> Result<(), Error>;
 
     /// Render the screen
     fn render_screen(&mut self, area: Rect, buf: &mut Buffer) -> Result<(), Error>;

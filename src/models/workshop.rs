@@ -66,8 +66,7 @@ pub struct WorkshopData {
     license: LicenseLoader,
     metadata: MetadataMap,
     lessons_data: LessonsDataMap,
-    spoken_languages: Vec<spoken::Code>,
-    programming_languages: Vec<programming::Code>,
+    languages: HashMap<spoken::Code, Vec<programming::Code>>,
 }
 
 impl WorkshopData {
@@ -83,12 +82,24 @@ impl WorkshopData {
 
     /// returns the set of spoken languages the workshop has been translated to
     pub fn get_all_spoken_languages(&self) -> Vec<spoken::Code> {
-        self.spoken_languages.clone()
+        self.languages.keys().cloned().collect::<Vec<_>>()
     }
 
     /// returns the set of programming languages the workshop has been ported to
     pub fn get_all_programming_languages(&self) -> Vec<programming::Code> {
-        self.programming_languages.clone()
+        let mut programming_languages: Vec<programming::Code> = self
+            .setup_instructions
+            .values()
+            .flat_map(|langs| langs.keys().cloned())
+            .collect();
+        programming_languages.sort();
+        programming_languages.dedup();
+        programming_languages
+    }
+
+    /// returns the mapping of spoken languages to programming languages
+    pub fn get_languages(&self) -> &HashMap<spoken::Code, Vec<programming::Code>> {
+        &self.languages
     }
 
     /// returns the set of programming languages given a spoken language
@@ -634,12 +645,15 @@ impl Loader {
         spoken_languages.sort();
         let setup_instructions =
             self.try_load_setup_instructions(&workshop_path, &spoken_languages)?;
-        let mut programming_languages = setup_instructions
-            .values()
-            .flat_map(|langs| langs.keys().cloned())
-            .collect::<Vec<_>>();
-        programming_languages.sort();
-        programming_languages.dedup();
+        let languages = setup_instructions
+            .iter()
+            .map(|(spoken, langs)| {
+                (
+                    *spoken,
+                    langs.keys().cloned().collect::<Vec<programming::Code>>(),
+                )
+            })
+            .collect::<HashMap<spoken::Code, Vec<programming::Code>>>();
         let license = self.try_load_license(&workshop_path)?;
         let metadata = self.try_load_metadata(&workshop_path)?;
         let lessons_data = self.try_load_lessons_data(&workshop_path, &spoken_languages)?;
@@ -653,8 +667,7 @@ impl Loader {
             license,
             metadata,
             lessons_data,
-            spoken_languages,
-            programming_languages,
+            languages,
         })
     }
 }

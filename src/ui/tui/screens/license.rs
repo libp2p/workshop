@@ -1,7 +1,7 @@
 use crate::{
     languages::spoken,
     ui::tui::{self, screens, widgets::ScrollText, Screen},
-    Error,
+    Error, Status,
 };
 use crossterm::event::{self, KeyCode};
 use ratatui::{
@@ -30,15 +30,12 @@ pub struct License<'a> {
 
 impl License<'_> {
     /// set the license text
-    pub async fn set_license(&mut self, text: String) -> Result<(), Error> {
-        self.text = text;
-        Ok(())
-    }
-
-    async fn set_spoken_language(
+    pub async fn set_license(
         &mut self,
+        text: String,
         spoken_language: Option<spoken::Code>,
     ) -> Result<(), Error> {
+        self.text = text;
         self.spoken_language = spoken_language;
         Ok(())
     }
@@ -100,16 +97,16 @@ impl License<'_> {
     pub async fn handle_ui_event(
         &mut self,
         event: tui::Event,
-        _to_ui: Sender<screens::Event>,
+        to_ui: Sender<screens::Event>,
+        status: Status,
     ) -> Result<(), Error> {
         match event {
-            tui::Event::SpokenLanguage(spoken_language) => {
-                info!("Spoken language set: {:?}", spoken_language);
-                self.set_spoken_language(spoken_language).await?;
-            }
-            tui::Event::SetLicense(text) => {
+            tui::Event::ShowLicense(text) => {
                 info!("Setting license text");
-                self.set_license(text).await?;
+                self.set_license(text, status.spoken_language()).await?;
+                to_ui
+                    .send((None, tui::Event::Show(screens::Screens::License)).into())
+                    .await?;
             }
             _ => {
                 info!("Ignoring UI event: {:?}", event);
@@ -123,14 +120,14 @@ impl License<'_> {
         &mut self,
         event: event::Event,
         to_ui: Sender<screens::Event>,
+        _status: Status,
     ) -> Result<(), Error> {
         if let event::Event::Key(key) = event {
             match key.code {
                 KeyCode::PageUp => self.st.scroll_top(),
                 KeyCode::PageDown => self.st.scroll_bottom(),
                 KeyCode::Char('b') | KeyCode::Esc => {
-                    info!("Back to previous screen");
-                    to_ui.send(tui::Event::LoadWorkshops.into()).await?;
+                    to_ui.send((None, tui::Event::LoadWorkshops).into()).await?;
                 }
                 KeyCode::Char('j') | KeyCode::Down => self.st.scroll_down(),
                 KeyCode::Char('k') | KeyCode::Up => self.st.scroll_up(),
@@ -147,10 +144,13 @@ impl Screen for License<'_> {
         &mut self,
         event: screens::Event,
         to_ui: Sender<screens::Event>,
+        status: Status,
     ) -> Result<(), Error> {
         match event {
-            screens::Event::Input(input_event) => self.handle_input_event(input_event, to_ui).await,
-            screens::Event::Ui(ui_event) => self.handle_ui_event(ui_event, to_ui).await,
+            screens::Event::Input(input_event) => {
+                self.handle_input_event(input_event, to_ui, status).await
+            }
+            screens::Event::Ui(_, ui_event) => self.handle_ui_event(ui_event, to_ui, status).await,
         }
     }
 

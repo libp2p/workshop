@@ -1,7 +1,8 @@
 use crate::{
+    fs,
     languages::spoken,
     ui::tui::{self, screens, Screen},
-    Error,
+    Error, Status,
 };
 use crossterm::event::{self, KeyCode};
 use ratatui::{
@@ -36,8 +37,10 @@ impl Spoken<'_> {
     async fn set_spoken_languages(
         &mut self,
         spoken_languages: &[spoken::Code],
+        spoken_language: Option<spoken::Code>,
     ) -> Result<(), Error> {
         self.spoken_languages = spoken_languages.to_vec();
+        self.spoken_language = spoken_language;
 
         let mut spoken_language_names = vec!["Any".to_string()];
         spoken_language_names.extend(
@@ -71,22 +74,6 @@ impl Spoken<'_> {
             .style(Style::default().fg(Color::White))
             .highlight_symbol("> ");
 
-        Ok(())
-    }
-
-    async fn set_spoken_language(
-        &mut self,
-        spoken_language: Option<spoken::Code>,
-    ) -> Result<(), Error> {
-        self.spoken_language = spoken_language;
-        let select_index = match spoken_language {
-            Some(code) => match self.spoken_languages.iter().position(|&c| c == code) {
-                Some(index) => Some(index + 1),
-                None => Some(0),
-            },
-            None => Some(0),
-        };
-        self.list_state.select(select_index);
         Ok(())
     }
 
@@ -135,16 +122,20 @@ impl Spoken<'_> {
     pub async fn handle_ui_event(
         &mut self,
         event: tui::Event,
-        _to_ui: Sender<screens::Event>,
+        to_ui: Sender<screens::Event>,
+        status: Status,
     ) -> Result<(), Error> {
         match event {
-            tui::Event::SpokenLanguage(spoken_language) => {
-                info!("Spoken language set: {:?}", spoken_language);
-                self.set_spoken_language(spoken_language).await?;
-            }
-            tui::Event::SetSpokenLanguages(ref spoken_languages) => {
-                info!("Setting spoken languages: {:?}", spoken_languages);
-                self.set_spoken_languages(spoken_languages).await?;
+            tui::Event::ChangeSpokenLanguage => {
+                info!("Changing spoken language");
+                self.set_spoken_languages(
+                    &fs::application::all_spoken_languages()?,
+                    status.spoken_language(),
+                )
+                .await?;
+                to_ui
+                    .send((None, tui::Event::Show(screens::Screens::Spoken)).into())
+                    .await?;
             }
             _ => {
                 info!("Ignoring UI event: {:?}", event);
@@ -158,6 +149,7 @@ impl Spoken<'_> {
         &mut self,
         event: event::Event,
         to_ui: Sender<screens::Event>,
+        _status: Status,
     ) -> Result<(), Error> {
         if let event::Event::Key(key) = event {
             match key.code {
@@ -165,7 +157,9 @@ impl Spoken<'_> {
                 KeyCode::PageDown => self.list_state.select_last(),
                 KeyCode::Char('b') | KeyCode::Esc => {
                     info!("Back to previous screen");
-                    to_ui.send(tui::Event::LoadWorkshops.into()).await?;
+                    to_ui
+                        .send((Some(screens::Screens::Workshops), tui::Event::LoadWorkshops).into())
+                        .await?;
                 }
                 KeyCode::Char('j') | KeyCode::Down => self.list_state.select_next(),
                 KeyCode::Char('k') | KeyCode::Up => self.list_state.select_previous(),
@@ -187,7 +181,9 @@ impl Spoken<'_> {
                             }
                         };
                         to_ui
-                            .send(tui::Event::SpokenLanguage(spoken_language).into())
+                            .send(
+                                (None, tui::Event::SetSpokenLanguage(spoken_language, None)).into(),
+                            )
                             .await?;
                     }
                 }
@@ -204,10 +200,13 @@ impl Screen for Spoken<'_> {
         &mut self,
         event: screens::Event,
         to_ui: Sender<screens::Event>,
+        status: Status,
     ) -> Result<(), Error> {
         match event {
-            screens::Event::Input(input_event) => self.handle_input_event(input_event, to_ui).await,
-            screens::Event::Ui(ui_event) => self.handle_ui_event(ui_event, to_ui).await,
+            screens::Event::Input(input_event) => {
+                self.handle_input_event(input_event, to_ui, status).await
+            }
+            screens::Event::Ui(_, ui_event) => self.handle_ui_event(ui_event, to_ui, status).await,
         }
     }
 

@@ -2,7 +2,7 @@ use crate::{
     languages::{programming, spoken},
     models::{Lesson, LessonData},
     ui::tui::{self, screens, widgets::ScrollText, Screen},
-    Error,
+    Error, Status,
 };
 use crossterm::event::{self, KeyCode};
 use ratatui::{
@@ -75,22 +75,6 @@ impl Lessons<'_> {
             .highlight_symbol("> ");
         */
 
-        Ok(())
-    }
-
-    async fn set_spoken_language(
-        &mut self,
-        spoken_language: Option<spoken::Code>,
-    ) -> Result<(), Error> {
-        self.spoken_language = spoken_language;
-        Ok(())
-    }
-
-    async fn set_programming_language(
-        &mut self,
-        programming_language: Option<programming::Code>,
-    ) -> Result<(), Error> {
-        self.programming_language = programming_language;
         Ok(())
     }
 
@@ -248,19 +232,9 @@ impl Lessons<'_> {
         &mut self,
         event: tui::Event,
         _to_ui: Sender<screens::Event>,
+        _status: Status,
     ) -> Result<(), Error> {
         match event {
-            tui::Event::SpokenLanguage(spoken_language) => {
-                info!("Lessons Spoken language set: {:?}", spoken_language);
-                self.set_spoken_language(spoken_language).await?;
-            }
-            tui::Event::ProgrammingLanguage(programming_language) => {
-                info!(
-                    "Lessons Programming language set: {:?}",
-                    programming_language
-                );
-                self.set_programming_language(programming_language).await?;
-            }
             // TODO: have this also pass the selected workshop for clean resuming
             tui::Event::SetLessons(lessons) => {
                 info!("Setting lessons");
@@ -285,6 +259,7 @@ impl Lessons<'_> {
         &mut self,
         event: event::Event,
         to_ui: Sender<screens::Event>,
+        _status: Status,
     ) -> Result<(), Error> {
         if let event::Event::Key(key) = event {
             match key.code {
@@ -339,7 +314,7 @@ impl Lessons<'_> {
                     if let Some(lesson_key) = self.get_selected_lesson_key() {
                         info!("Selected lesson: {}", lesson_key);
                         to_ui
-                            .send(tui::Event::LoadLessons(lesson_key).into())
+                            .send((None, tui::Event::LoadLessons(lesson_key)).into())
                             .await?;
                     }
                 }
@@ -356,10 +331,13 @@ impl Screen for Lessons<'_> {
         &mut self,
         event: screens::Event,
         to_ui: Sender<screens::Event>,
+        status: Status,
     ) -> Result<(), Error> {
         match event {
-            screens::Event::Input(input_event) => self.handle_input_event(input_event, to_ui).await,
-            screens::Event::Ui(ui_event) => self.handle_ui_event(ui_event, to_ui).await,
+            screens::Event::Input(input_event) => {
+                self.handle_input_event(input_event, to_ui, status).await
+            }
+            screens::Event::Ui(_, ui_event) => self.handle_ui_event(ui_event, to_ui, status).await,
         }
     }
 

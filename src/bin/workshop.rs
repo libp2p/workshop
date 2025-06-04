@@ -1,16 +1,13 @@
 use anyhow::Result;
-use workshop::{App, Config, Log};
+use workshop::{App, Log};
 
 #[tokio::main(flavor = "multi_thread")]
 async fn main() -> Result<()> {
     // initialize the logger
     let from_logger = Log::init(Some("log.txt"))?;
 
-    // Load the configuration
-    let config = Config::load()?;
-
     // Initialize the app
-    let mut app = App::new(from_logger, config);
+    let mut app = App::new(from_logger)?;
 
     // run the app
     let app_handle = tokio::spawn(async move { app.run().await });

@@ -1,6 +1,6 @@
 use crate::{
     languages::{programming, spoken},
-    models::{LessonData, WorkshopData},
+    models::LessonData,
     ui::tui::screens::Screens,
 };
 use std::collections::HashMap;
@@ -18,32 +18,20 @@ pub enum Event {
     Show(Screens),
     /// load the workshops
     LoadWorkshops,
-    /// set the workshops
-    SetWorkshops(HashMap<String, WorkshopData>),
     /// set the workshop
     SelectWorkshop(String),
     /// load the license for a workshop
     ShowLicense(String),
-    /// set the license for a workshop
-    SetLicense(String),
     /// change the spoken language
     ChangeSpokenLanguage,
-    /// set the spoken languages
-    SetSpokenLanguages(Vec<spoken::Code>),
-    /// new spoken language selected
-    SpokenLanguage(Option<spoken::Code>),
     /// set the default spoken language
-    SetDefaultSpokenLanguage(Option<spoken::Code>),
+    SetSpokenLanguage(Option<spoken::Code>, Option<bool>),
     /// change the programming language
     ChangeProgrammingLanguage,
-    /// set the programming languages
-    SetProgrammingLanguages(Vec<programming::Code>),
-    /// new programming language selected
-    ProgrammingLanguage(Option<programming::Code>),
     /// set the default programming language
-    SetDefaultProgrammingLanguage(Option<programming::Code>),
-    /// set the event in the confirmation dialog
-    SetEvent(Box<Event>),
+    SetProgrammingLanguage(Option<programming::Code>, Option<bool>),
+    /// initialize the "set default" dialog
+    SetDefault(String, Option<Box<Event>>),
     /// launch the browser with the given url
     Homepage(String),
     /// load lessons

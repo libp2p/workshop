@@ -1,7 +1,7 @@
 use crate::{
     languages::spoken,
     ui::tui::{self, screens, widgets::ScrollText, Screen},
-    Error,
+    Error, Status,
 };
 use crossterm::event::{self, KeyCode};
 use ratatui::{
@@ -133,12 +133,9 @@ impl Log<'_> {
         &mut self,
         event: tui::Event,
         _to_ui: Sender<screens::Event>,
+        _status: Status,
     ) -> Result<(), Error> {
         match event {
-            tui::Event::SpokenLanguage(spoken_language) => {
-                info!("Spoken language set: {:?}", spoken_language);
-                self.set_spoken_language(spoken_language).await?;
-            }
             tui::Event::Log(msg) => {
                 self.add_message(msg);
             }
@@ -154,6 +151,7 @@ impl Log<'_> {
         &mut self,
         event: event::Event,
         to_ui: Sender<screens::Event>,
+        _status: Status,
     ) -> Result<(), Error> {
         if let event::Event::Key(key) = event {
             match key.code {
@@ -163,7 +161,7 @@ impl Log<'_> {
                 KeyCode::Char('k') | KeyCode::Char('K') | KeyCode::Up => self.st.scroll_up(),
                 KeyCode::Char('`') => {
                     info!("input event: Hide Log");
-                    to_ui.send(tui::Event::ToggleLog.into()).await?
+                    to_ui.send((None, tui::Event::ToggleLog).into()).await?
                 }
                 _ => {}
             }
@@ -178,10 +176,13 @@ impl Screen for Log<'_> {
         &mut self,
         event: screens::Event,
         to_ui: Sender<screens::Event>,
+        status: Status,
     ) -> Result<(), Error> {
         match event {
-            screens::Event::Input(input_event) => self.handle_input_event(input_event, to_ui).await,
-            screens::Event::Ui(ui_event) => self.handle_ui_event(ui_event, to_ui).await,
+            screens::Event::Input(input_event) => {
+                self.handle_input_event(input_event, to_ui, status).await
+            }
+            screens::Event::Ui(_, ui_event) => self.handle_ui_event(ui_event, to_ui, status).await,
         }
     }
 

@@ -1,8 +1,9 @@
 use crate::{
+    fs,
     languages::{programming, spoken},
     models::{Workshop, WorkshopData},
     ui::tui::{self, screens, widgets::ScrollText, Screen},
-    Error,
+    Error, Status,
 };
 use crossterm::event::{self, KeyCode};
 use ratatui::{
@@ -13,7 +14,7 @@ use ratatui::{
 };
 use std::collections::HashMap;
 use tokio::sync::mpsc::Sender;
-use tracing::info;
+use tracing::{error, info};
 
 #[derive(Clone, Debug, Default)]
 enum FocusedView {
@@ -22,20 +23,21 @@ enum FocusedView {
     Info,
 }
 
+#[derive(Clone, Debug)]
+struct Cached {
+    workshop: Workshop,
+    languages: HashMap<spoken::Code, Vec<programming::Code>>,
+    description: String,
+    setup_instructions: String,
+    license: String,
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct Workshops<'a> {
     /// the list of workshops
     workshops: HashMap<String, WorkshopData>,
-    /// the selected workshop metadata
-    workshop: Option<Workshop>,
-    /// the cached descriptions of the workshops
-    descriptions: HashMap<String, String>,
-    /// the cached setup instructions of the workshops
-    setup_instructions: HashMap<String, String>,
-    /// the cached spoken languages this workshop has been translated to
-    spoken_languages: HashMap<String, Vec<spoken::Code>>,
-    /// the cached programming languages this workshop has been ported to
-    programming_languages: HashMap<String, Vec<programming::Code>>,
+    /// the currently selected workshop data
+    selected: Option<Cached>,
     /// the cached list
     titles: List<'a>,
     /// the list state of workshop title
@@ -52,21 +54,16 @@ pub struct Workshops<'a> {
 
 impl Workshops<'_> {
     /// set the workshops
-    async fn set_workshops(
+    async fn init(
         &mut self,
         workshops: &HashMap<String, WorkshopData>,
+        spoken_language: Option<spoken::Code>,
+        programming_language: Option<programming::Code>,
     ) -> Result<(), Error> {
-        info!("Setting workshops: {}", workshops.len());
+        info!("Initializing workshops");
         self.workshops = workshops.clone();
-        self.workshop = None;
-        self.descriptions.clear();
-        self.setup_instructions.clear();
-        self.spoken_languages.clear();
-        self.programming_languages.clear();
-
-        // reset both languages, they will be set again automatically
-        self.spoken_language = None;
-        self.programming_language = None;
+        self.spoken_language = spoken_language;
+        self.programming_language = programming_language;
 
         if self.workshops.is_empty() {
             self.titles_state.select(None);
@@ -74,40 +71,9 @@ impl Workshops<'_> {
             self.titles_state.select_first();
         };
 
-        if let Some(workshop_key) = self.get_selected_workshop_key() {
-            self.set_selected_workshop(workshop_key.clone()).await?;
-        }
-
-        for (workshop_key, workshop) in &self.workshops {
-            // update the the cached spoken languages
-            let spoken_languages = workshop.get_all_spoken_languages();
-            self.spoken_languages
-                .insert(workshop_key.clone(), spoken_languages);
-
-            // update the cached programming languages
-            let programming_languages = workshop.get_all_programming_languages();
-            self.programming_languages
-                .insert(workshop_key.clone(), programming_languages);
-        }
-
-        Ok(())
-    }
-
-    async fn set_spoken_language(
-        &mut self,
-        spoken_language: Option<spoken::Code>,
-    ) -> Result<(), Error> {
-        self.spoken_language = spoken_language;
-
-        // update the cached titles
-        let mut workshop_titles = Vec::with_capacity(self.workshops.len());
-        for workshop in self.workshops.values() {
-            let metadata = workshop.get_metadata(self.spoken_language).await?;
-            workshop_titles.push(metadata.title.clone());
-        }
-
-        // create the list of workshop titles
-        self.titles = List::new(workshop_titles)
+        // create the titles list
+        let titles = self.get_titles().await?;
+        self.titles = List::new(titles)
             .highlight_style(
                 Style::default()
                     .fg(Color::Black)
@@ -117,71 +83,94 @@ impl Workshops<'_> {
             .style(Style::default().fg(Color::White))
             .highlight_symbol("> ");
 
+        // cache all of the data for the selected workshop
+        self.cache_selected().await?;
+
+        Ok(())
+    }
+
+    // get the workshop titles
+    async fn get_titles(&self) -> Result<Vec<String>, Error> {
+        let mut titles = Vec::with_capacity(self.workshops.len());
+        for (_, wd) in self.workshops.iter() {
+            let workshop = wd.get_metadata(self.spoken_language).await?;
+            titles.push(workshop.title.clone());
+        }
+        Ok(titles)
+    }
+
+    // cached selected workshop data
+    async fn cache_selected(&mut self) -> Result<(), Error> {
+        info!("Caching selected workshop data");
+        self.selected = None;
         if let Some(workshop_key) = self.get_selected_workshop_key() {
-            self.set_selected_workshop(workshop_key.clone()).await?;
+            if let Some(workshop_data) = self.workshops.get(&workshop_key) {
+                let workshop = workshop_data.get_metadata(self.spoken_language).await?;
+                let languages = workshop_data.get_languages().clone();
+                let description = workshop_data
+                    .get_description(self.spoken_language)
+                    .await
+                    .unwrap_or_default();
+                let setup_instructions = workshop_data
+                    .get_setup_instructions(self.spoken_language, self.programming_language)
+                    .await
+                    .unwrap_or_default();
+                let license = workshop_data.get_license().await?;
+                self.selected = Some(Cached {
+                    workshop,
+                    languages,
+                    description,
+                    setup_instructions,
+                    license,
+                });
+            }
         }
-
         Ok(())
     }
 
-    async fn set_programming_language(
-        &mut self,
-        programming_language: Option<programming::Code>,
-    ) -> Result<(), Error> {
-        self.programming_language = programming_language;
-
-        if let Some(workshop_key) = self.get_selected_workshop_key() {
-            self.set_selected_workshop(workshop_key.clone()).await?;
+    // select first workshop
+    async fn select_first(&mut self) -> Result<(), Error> {
+        if !self.workshops.is_empty() {
+            self.titles_state.select(Some(0));
+            self.cache_selected().await?;
         }
-
         Ok(())
     }
 
-    async fn set_selected_workshop(&mut self, workshop_key: String) -> Result<(), Error> {
-        if let Some(workshop_data) = self.workshops.get(&workshop_key) {
-            // get the workshop metadata
-            let workshop = workshop_data.get_metadata(self.spoken_language).await?;
-            self.workshop = Some(workshop);
-
-            // update the cached description
-            let description = workshop_data.get_description(self.spoken_language).await?;
-            self.descriptions.insert(workshop_key.clone(), description);
-
-            // update the cached setup instructions
-            let setup_instructions = workshop_data
-                .get_setup_instructions(self.spoken_language, self.programming_language)
-                .await?;
-            self.setup_instructions
-                .insert(workshop_key.clone(), setup_instructions);
-        } else {
-            self.workshop = None;
+    // select last workshop
+    async fn select_last(&mut self) -> Result<(), Error> {
+        if !self.workshops.is_empty() {
+            let last_index = self.workshops.len() - 1;
+            self.titles_state.select(Some(last_index));
+            self.cache_selected().await?;
         }
-
         Ok(())
     }
 
-    // get the currently selected workshop
-    fn get_selected_description(&self) -> Option<&String> {
-        let workshop_key = self.get_selected_workshop_key()?;
-        self.descriptions.get(workshop_key.as_str())
+    // select next workshop
+    async fn select_next(&mut self) -> Result<(), Error> {
+        if !self.workshops.is_empty() {
+            let selected_index = self.titles_state.selected().unwrap_or(0);
+            let next_index = (selected_index + 1).min(self.workshops.len() - 1);
+            self.titles_state.select(Some(next_index));
+            self.cache_selected().await?;
+        }
+        Ok(())
     }
 
-    // get the currently selected workshop
-    fn get_selected_setup_instructions(&self) -> Option<&String> {
-        let workshop_key = self.get_selected_workshop_key()?;
-        self.setup_instructions.get(workshop_key.as_str())
-    }
-
-    // get the currently selected workshop
-    fn get_selected_spoken_languages(&self) -> Option<&Vec<spoken::Code>> {
-        let workshop_key = self.get_selected_workshop_key()?;
-        self.spoken_languages.get(workshop_key.as_str())
-    }
-
-    // get the currently selected workshop
-    fn get_selected_programming_languages(&self) -> Option<&Vec<programming::Code>> {
-        let workshop_key = self.get_selected_workshop_key()?;
-        self.programming_languages.get(workshop_key.as_str())
+    // select previous workshop
+    async fn select_prev(&mut self) -> Result<(), Error> {
+        if !self.workshops.is_empty() {
+            let selected_index = self.titles_state.selected().unwrap_or(0);
+            let prev_index = if selected_index > 0 {
+                selected_index - 1
+            } else {
+                0
+            };
+            self.titles_state.select(Some(prev_index));
+            self.cache_selected().await?;
+        }
+        Ok(())
     }
 
     // get the selected workshop key
@@ -189,14 +178,8 @@ impl Workshops<'_> {
         if self.workshops.is_empty() {
             return None;
         }
-
         let selected_index = self.titles_state.selected().unwrap_or(0);
         self.get_workshop_keys().get(selected_index).cloned()
-    }
-
-    // get the currently selected workshop
-    fn get_selected_workshop(&self) -> Option<&Workshop> {
-        self.workshop.as_ref()
     }
 
     // get the sorted list of workshop keys
@@ -204,6 +187,24 @@ impl Workshops<'_> {
         let mut workshop_keys = self.workshops.keys().cloned().collect::<Vec<_>>();
         workshop_keys.sort();
         workshop_keys
+    }
+
+    // get the cached URL for the selected workshop
+    fn get_url(&self) -> Option<String> {
+        if let Some(Cached { workshop, .. }) = &self.selected {
+            Some(workshop.homepage.clone())
+        } else {
+            None
+        }
+    }
+
+    // get the cached license text for the selected workshop
+    fn get_license(&self) -> Option<String> {
+        if let Some(Cached { license, .. }) = &self.selected {
+            Some(license.clone())
+        } else {
+            None
+        }
     }
 
     /// render the workshop list and info
@@ -238,8 +239,14 @@ impl Workshops<'_> {
     /// render the workshop info
     fn render_workshop_info(&mut self, area: Rect, buf: &mut Buffer) {
         let mut details = String::new();
-        match self.get_selected_workshop() {
-            Some(workshop) => {
+        match &self.selected {
+            Some(Cached {
+                workshop,
+                languages,
+                description,
+                setup_instructions,
+                ..
+            }) => {
                 details.push_str("Authors: \n");
                 details.push_str(
                     &workshop
@@ -257,39 +264,33 @@ impl Workshops<'_> {
                 details.push_str(&workshop.homepage);
                 details.push_str("\nDifficulty: ");
                 details.push_str(&workshop.difficulty);
+                details.push_str("\nLanguages:\n");
+                details.push_str(
+                    &languages
+                        .iter()
+                        .map(|(spoken_lang, programming_langs)| {
+                            format!(
+                                " - {}: {}",
+                                spoken_lang.get_name_in_native(),
+                                programming_langs
+                                    .iter()
+                                    .map(|pl| pl.get_name())
+                                    .collect::<Vec<_>>()
+                                    .join(", ")
+                            )
+                        })
+                        .collect::<Vec<_>>()
+                        .join("\n"),
+                );
+                details.push_str("\n\n");
+                details.push_str(description);
+                details.push_str("\n\n");
+                details.push_str(setup_instructions);
             }
             None => {
                 details
                     .push_str("No workshops support the selected spoken and programming languages");
             }
-        }
-        if let Some(spoken_languages) = self.get_selected_spoken_languages() {
-            details.push_str("\nSpoken Languages:\n");
-            details.push_str(
-                &spoken_languages
-                    .iter()
-                    .map(|c| format!(" - {}", c.get_name_in_native()))
-                    .collect::<Vec<_>>()
-                    .join("\n"),
-            );
-        }
-        if let Some(programming_languages) = self.get_selected_programming_languages() {
-            details.push_str("\nProgramming Languages:\n");
-            details.push_str(
-                &programming_languages
-                    .iter()
-                    .map(|c| format!(" - {}", c.get_name()))
-                    .collect::<Vec<_>>()
-                    .join("\n"),
-            );
-        }
-        if let Some(description) = self.get_selected_description() {
-            details.push_str("\n\n");
-            details.push_str(description);
-        }
-        if let Some(setup_instructions) = self.get_selected_setup_instructions() {
-            details.push_str("\n\n");
-            details.push_str(setup_instructions);
         }
 
         let fg = match self.focused {
@@ -372,31 +373,19 @@ impl Workshops<'_> {
     pub async fn handle_ui_event(
         &mut self,
         event: tui::Event,
-        _to_ui: Sender<screens::Event>,
+        to_ui: Sender<screens::Event>,
+        status: Status,
     ) -> Result<(), Error> {
         match event {
-            tui::Event::SpokenLanguage(spoken_language) => {
-                info!("Workshops Spoken language set: {:?}", spoken_language);
-                self.set_spoken_language(spoken_language).await?;
-            }
-            tui::Event::ProgrammingLanguage(programming_language) => {
-                info!(
-                    "Workshops Programming language set: {:?}",
-                    programming_language
-                );
-                self.set_programming_language(programming_language).await?;
-            }
-            // TODO: have this also pass the selected workshop for clean resuming
-            tui::Event::SetWorkshops(workshops) => {
-                info!("Setting workshops");
-                self.set_workshops(&workshops).await?;
-                if let Some(workshop_key) = self.get_selected_workshop_key() {
-                    self.set_selected_workshop(workshop_key).await?;
-                }
-            }
-            tui::Event::SelectWorkshop(workshop_key) => {
-                info!("Selected workshop: {}", workshop_key);
-                self.set_selected_workshop(workshop_key).await?;
+            tui::Event::LoadWorkshops => {
+                info!("Loading workshops");
+                let spoken = status.spoken_language();
+                let programming = status.programming_language();
+                let workshops = fs::application::all_workshops_filtered(spoken, programming)?;
+                self.init(&workshops, spoken, programming).await?;
+                to_ui
+                    .send((None, tui::Event::Show(screens::Screens::Workshops)).into())
+                    .await?;
             }
             _ => {
                 info!("Ignoring UI event: {:?}", event);
@@ -410,74 +399,78 @@ impl Workshops<'_> {
         &mut self,
         event: event::Event,
         to_ui: Sender<screens::Event>,
+        _status: Status,
     ) -> Result<(), Error> {
         if let event::Event::Key(key) = event {
             match key.code {
                 KeyCode::PageUp => match self.focused {
                     FocusedView::List => {
-                        self.titles_state.select_first();
-                        if let Some(workshop_key) = self.get_selected_workshop_key() {
-                            self.set_selected_workshop(workshop_key).await?;
-                        }
+                        self.select_first().await?;
                     }
                     FocusedView::Info => self.st.scroll_top(),
                 },
                 KeyCode::PageDown => match self.focused {
                     FocusedView::List => {
-                        self.titles_state.select_last();
-                        if let Some(workshop_key) = self.get_selected_workshop_key() {
-                            self.set_selected_workshop(workshop_key).await?;
-                        }
+                        self.select_last().await?;
                     }
                     FocusedView::Info => self.st.scroll_bottom(),
                 },
                 KeyCode::Char('j') | KeyCode::Char('J') | KeyCode::Down => match self.focused {
                     FocusedView::List => {
-                        info!("select next");
-                        self.titles_state.select_next();
-                        if let Some(workshop_key) = self.get_selected_workshop_key() {
-                            self.set_selected_workshop(workshop_key).await?;
-                        }
+                        self.select_next().await?;
                     }
                     FocusedView::Info => self.st.scroll_down(),
                 },
                 KeyCode::Char('k') | KeyCode::Char('K') | KeyCode::Up => match self.focused {
                     FocusedView::List => {
-                        info!("select previous");
-                        self.titles_state.select_previous();
-                        info!("selected previous");
-                        if let Some(workshop_key) = self.get_selected_workshop_key() {
-                            info!("Setting selected workshop: {}", workshop_key);
-                            self.set_selected_workshop(workshop_key).await?;
-                        }
+                        self.select_prev().await?;
                     }
                     FocusedView::Info => self.st.scroll_up(),
                 },
                 KeyCode::Char('l') | KeyCode::Char('L') => {
-                    if let Some(workshop_key) = self.get_selected_workshop_key() {
-                        if let Some(workshop_data) = self.workshops.get(&workshop_key) {
-                            info!("Show license for workshop: {}", workshop_key);
-                            let license = workshop_data.get_license().await?;
-                            to_ui.send(tui::Event::ShowLicense(license).into()).await?;
-                        } else {
-                            info!("No workshop data found for key: {}", workshop_key);
-                        }
+                    if let Some(license) = self.get_license() {
+                        info!("Show license: {}", license);
+                        to_ui
+                            .send(
+                                (
+                                    Some(screens::Screens::License),
+                                    tui::Event::ShowLicense(license),
+                                )
+                                    .into(),
+                            )
+                            .await?;
+                    } else {
+                        info!("No selected workshop");
                     }
                 }
                 KeyCode::Char('p') | KeyCode::Char('P') => {
                     to_ui
-                        .send(tui::Event::ChangeProgrammingLanguage.into())
+                        .send(
+                            (
+                                Some(screens::Screens::Programming),
+                                tui::Event::ChangeProgrammingLanguage,
+                            )
+                                .into(),
+                        )
                         .await?;
                 }
                 KeyCode::Char('s') | KeyCode::Char('S') => {
-                    to_ui.send(tui::Event::ChangeSpokenLanguage.into()).await?;
+                    to_ui
+                        .send(
+                            (
+                                Some(screens::Screens::Spoken),
+                                tui::Event::ChangeSpokenLanguage,
+                            )
+                                .into(),
+                        )
+                        .await?;
                 }
                 KeyCode::Char('w') | KeyCode::Char('W') => {
-                    if let Some(workshop) = self.get_selected_workshop() {
-                        info!("Open homepage: {}", workshop.homepage);
-                        to_ui
-                            .send(tui::Event::Homepage(workshop.homepage.clone()).into())
-                            .await?;
+                    if let Some(url) = self.get_url() {
+                        info!("Open homepage: {}", url);
+                        if let Err(e) = webbrowser::open(&url) {
+                            error!("Failed to open browser: {}", e);
+                        }
                     }
                 }
                 KeyCode::Tab => {
@@ -491,7 +484,7 @@ impl Workshops<'_> {
                     if let Some(workshop_key) = self.get_selected_workshop_key() {
                         info!("Selected workshop: {}", workshop_key);
                         to_ui
-                            .send(tui::Event::LoadLessons(workshop_key).into())
+                            .send((None, tui::Event::SelectWorkshop(workshop_key)).into())
                             .await?;
                     }
                 }
@@ -508,10 +501,13 @@ impl Screen for Workshops<'_> {
         &mut self,
         event: screens::Event,
         to_ui: Sender<screens::Event>,
+        status: Status,
     ) -> Result<(), Error> {
         match event {
-            screens::Event::Input(input_event) => self.handle_input_event(input_event, to_ui).await,
-            screens::Event::Ui(ui_event) => self.handle_ui_event(ui_event, to_ui).await,
+            screens::Event::Input(input_event) => {
+                self.handle_input_event(input_event, to_ui, status).await
+            }
+            screens::Event::Ui(_, ui_event) => self.handle_ui_event(ui_event, to_ui, status).await,
         }
     }
 
