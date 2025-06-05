@@ -1,7 +1,7 @@
 use crate::{
     fs,
     languages::{programming, spoken},
-    ui::tui::{self, screens, widgets::ScrollText, Screen},
+    ui::tui::{self, screens, widgets::{LessonBox, LessonBoxState}, Screen},
     Error, Status,
 };
 use crossterm::event::{self, KeyCode};
@@ -40,22 +40,20 @@ const STATUS_BORDER: Set = Set {
 };
 
 #[derive(Clone, Debug, Default)]
-pub struct Lesson<'a> {
+pub struct Lesson {
     /// the title of the workshop
     workshop_title: String,
     /// the title of the lesson
     lesson_title: String,
-    /// the lesson text
-    text: String,
-    /// the scrollable info window - requires lifetime for Block
-    st: ScrollText<'a>,
+    /// the lesson box state for rendering markdown content
+    lesson_state: LessonBoxState,
     /// the currently selected spoken language
     spoken_language: Option<spoken::Code>,
     /// the currently selected programming language
     programming_language: Option<programming::Code>,
 }
 
-impl Lesson<'_> {
+impl Lesson {
     /// set the lessons
     async fn init<S: AsRef<str>>(
         &mut self,
@@ -67,7 +65,7 @@ impl Lesson<'_> {
     ) -> Result<(), Error> {
         self.workshop_title = workshop_title.as_ref().to_string();
         self.lesson_title = lesson_title.as_ref().to_string();
-        self.text = text.as_ref().to_string();
+        self.lesson_state = LessonBoxState::from_markdown(text.as_ref());
         self.spoken_language = spoken_language;
         self.programming_language = programming_language;
         Ok(())
@@ -90,12 +88,12 @@ impl Lesson<'_> {
             .borders(Borders::LEFT | Borders::TOP | Borders::RIGHT)
             .border_set(TOP_BORDER);
 
-        self.st.block(block);
-        self.st
+        let lesson_widget = LessonBox::new()
+            .block(block)
             .style(Style::default().fg(Color::White).bg(Color::Black));
 
-        // render the scroll text
-        StatefulWidget::render(&mut self.st, area, buf, &mut self.text);
+        // render the lesson box
+        StatefulWidget::render(lesson_widget, area, buf, &mut self.lesson_state);
     }
 
     // render the status bar at the bottom
@@ -222,10 +220,17 @@ impl Lesson<'_> {
     ) -> Result<(), Error> {
         if let event::Event::Key(key) = event {
             match key.code {
-                KeyCode::PageUp => self.st.scroll_top(),
-                KeyCode::PageDown => self.st.scroll_bottom(),
-                KeyCode::Char('j') | KeyCode::Char('J') | KeyCode::Down => self.st.scroll_down(),
-                KeyCode::Char('k') | KeyCode::Char('K') | KeyCode::Up => self.st.scroll_up(),
+                KeyCode::PageUp => self.lesson_state.scroll_top(),
+                KeyCode::PageDown => self.lesson_state.scroll_bottom(),
+                KeyCode::Char('j') | KeyCode::Char('J') | KeyCode::Down => self.lesson_state.highlight_down(),
+                KeyCode::Char('k') | KeyCode::Char('K') | KeyCode::Up => self.lesson_state.highlight_up(),
+                KeyCode::Tab => {
+                    // Tab key for hint navigation - could be expanded later
+                }
+                KeyCode::Enter => {
+                    // Toggle hint if highlighted line is a hint title
+                    self.lesson_state.toggle_highlighted_hint(80); // Default width, could be dynamic
+                }
                 KeyCode::Char('b') | KeyCode::Esc => {
                     to_ui
                         .send((None, tui::Event::SetLesson(None)).into())
@@ -239,7 +244,7 @@ impl Lesson<'_> {
 }
 
 #[async_trait::async_trait]
-impl Screen for Lesson<'_> {
+impl Screen for Lesson {
     async fn handle_event(
         &mut self,
         event: screens::Event,
