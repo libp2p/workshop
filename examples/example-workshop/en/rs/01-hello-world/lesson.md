@@ -1,5 +1,3 @@
-# Hello, World!
-
 Welcome to your first Rust lesson! In this lesson, you'll write a simple program that prints "Hello, world!" to the console.
 
 ## Introduction

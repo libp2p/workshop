@@ -27,11 +27,7 @@ def main():
     all_dependencies_met = True
     
     # Check if rust is installed
-    if not check_command("rustc"):
-        all_dependencies_met = False
-    
-    # Check if cargo is installed
-    if not check_command("cargo"):
+    if not check_command("python3", "3.9"):
         all_dependencies_met = False
     
     # Check if docker is installed

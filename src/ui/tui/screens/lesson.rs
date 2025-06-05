@@ -9,11 +9,35 @@ use ratatui::{
     buffer::Buffer,
     layout::{Alignment, Constraint, Flex, Layout, Rect},
     style::{Color, Style},
-    widgets::{Block, Borders, Padding, Paragraph, StatefulWidget, Widget, Wrap},
+    symbols::border::Set,
+    text::{Line, Span},
+    widgets::{block::Position, Block, Borders, Padding, StatefulWidget, Widget},
 };
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc::Sender;
 use tracing::info;
+
+const TOP_BORDER: Set = Set {
+    top_left: "┌",
+    top_right: "┐",
+    bottom_left: "│",
+    bottom_right: "│",
+    vertical_left: "│",
+    vertical_right: "│",
+    horizontal_top: "─",
+    horizontal_bottom: " ",
+};
+
+const STATUS_BORDER: Set = Set {
+    top_left: " ",
+    top_right: " ",
+    bottom_left: "└",
+    bottom_right: "┘",
+    vertical_left: "│",
+    vertical_right: "│",
+    horizontal_top: " ",
+    horizontal_bottom: "─",
+};
 
 #[derive(Clone, Debug, Default)]
 pub struct Lesson<'a> {
@@ -51,11 +75,20 @@ impl Lesson<'_> {
 
     /// render the lesson
     fn render_lesson(&mut self, area: Rect, buf: &mut Buffer) {
+        let title = Line::from(vec![
+            Span::styled("─", Style::default().fg(Color::DarkGray).bg(Color::Black)),
+            Span::styled(
+                format!("/ {} /", self.lesson_title),
+                Style::default().fg(Color::White).bg(Color::Black),
+            ),
+        ]);
         let block = Block::default()
-            .title(format!(" {} - {} ", self.workshop_title, self.lesson_title))
-            .padding(Padding::horizontal(1))
-            .style(Style::default().fg(Color::White))
-            .borders(Borders::ALL);
+            .title(title)
+            .title_style(Style::default().fg(Color::White).bg(Color::Black))
+            .padding(Padding::uniform(1))
+            .style(Style::default().fg(Color::DarkGray).bg(Color::Black))
+            .borders(Borders::LEFT | Borders::TOP | Borders::RIGHT)
+            .border_set(TOP_BORDER);
 
         self.st.block(block);
         self.st
@@ -69,7 +102,7 @@ impl Lesson<'_> {
     fn render_status(&mut self, area: Rect, buf: &mut Buffer) {
         // render the status bar at the bottom
         let [keys_area, langs_area] =
-            Layout::horizontal([Constraint::Min(1), Constraint::Length(27)]).areas(area);
+            Layout::horizontal([Constraint::Min(1), Constraint::Length(40)]).areas(area);
 
         self.render_keys(keys_area, buf);
         self.render_langs(langs_area, buf);
@@ -77,28 +110,28 @@ impl Lesson<'_> {
 
     // render the keyboard shortcuts
     fn render_keys(&mut self, area: Rect, buf: &mut Buffer) {
+        let title = Line::from(vec![
+            Span::styled("─", Style::default().fg(Color::DarkGray).bg(Color::Black)),
+            Span::styled(
+                "/ j,k scroll / ⇥ next hint / ↵ expand hint / c check / b back / q quit /",
+                Style::default().fg(Color::White).bg(Color::Black),
+            ),
+        ]);
         let block = Block::default()
-            .borders(Borders::NONE)
+            .title(title)
+            .title_style(Style::default().bg(Color::Black).fg(Color::White))
+            .title_position(Position::Bottom)
+            .title_alignment(Alignment::Left)
+            .style(Style::default().fg(Color::DarkGray).bg(Color::Black))
+            .borders(Borders::LEFT | Borders::BOTTOM)
+            .border_set(STATUS_BORDER)
             .padding(Padding::horizontal(1));
 
-        let keys =
-            Paragraph::new("↓/↑ or j/k: scroll  |  tab: switch focus  |  b: back  |  q: quit")
-                .block(block)
-                .style(Style::default().fg(Color::Black).bg(Color::White))
-                .wrap(Wrap { trim: false })
-                .alignment(Alignment::Left);
-
-        Widget::render(keys, area, buf);
+        Widget::render(block, area, buf);
     }
 
-    // render the frames per second
+    // render the selected languages
     fn render_langs(&mut self, area: Rect, buf: &mut Buffer) {
-        let block = Block::default()
-            .borders(Borders::NONE)
-            .style(Style::default().fg(Color::Black).bg(Color::White))
-            .title_alignment(Alignment::Right)
-            .padding(Padding::horizontal(1));
-
         let spoken = match self.spoken_language {
             Some(code) => code.get_name_in_english().to_string(),
             None => "All".to_string(),
@@ -109,13 +142,25 @@ impl Lesson<'_> {
             None => "All".to_string(),
         };
 
-        let langs = Paragraph::new(format!("[ {} | {} ]", spoken, programming))
-            .block(block)
-            .style(Style::default().fg(Color::Black).bg(Color::White))
-            .wrap(Wrap { trim: false })
-            .alignment(Alignment::Right);
+        let title = Line::from(vec![
+            Span::styled(
+                format!("/ {} / {spoken} / {programming} /", self.workshop_title),
+                Style::default().fg(Color::White).bg(Color::Black),
+            ),
+            Span::styled("─", Style::default().fg(Color::DarkGray).bg(Color::Black)),
+        ]);
 
-        Widget::render(langs, area, buf);
+        let block = Block::default()
+            .title(title)
+            .title_style(Style::default().bg(Color::Black).fg(Color::White))
+            .title_position(Position::Bottom)
+            .title_alignment(Alignment::Right)
+            .style(Style::default().fg(Color::DarkGray).bg(Color::Black))
+            .borders(Borders::RIGHT | Borders::BOTTOM)
+            .border_set(STATUS_BORDER)
+            .padding(Padding::horizontal(1));
+
+        Widget::render(block, area, buf);
     }
 
     /// handle UI events
@@ -211,12 +256,12 @@ impl Screen for Lesson<'_> {
 
     fn render_screen(&mut self, area: Rect, buf: &mut Buffer) -> Result<(), Error> {
         // this splits the screen into a top area and a one-line bottom area
-        let [lessons_area, status_area] =
+        let [lesson_area, status_area] =
             Layout::vertical([Constraint::Percentage(100), Constraint::Min(1)])
                 .flex(Flex::End)
                 .areas(area);
 
-        self.render_lesson(lessons_area, buf);
+        self.render_lesson(lesson_area, buf);
         self.render_status(status_area, buf);
 
         Ok(())

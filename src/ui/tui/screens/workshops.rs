@@ -2,7 +2,7 @@ use crate::{
     fs,
     languages::{programming, spoken},
     models::{Workshop, WorkshopData},
-    ui::tui::{self, screens, widgets::ScrollText, Screen},
+    ui::tui::{self, screens, widgets::ScrollBox, Screen},
     Error, Status,
 };
 use crossterm::event::{self, KeyCode};
@@ -10,28 +10,85 @@ use ratatui::{
     buffer::Buffer,
     layout::{Alignment, Constraint, Flex, Layout, Rect},
     style::{Color, Modifier, Style},
-    widgets::{Block, Borders, List, ListState, Padding, Paragraph, StatefulWidget, Widget, Wrap},
+    symbols::border::Set,
+    text::{Line, Span},
+    widgets::{block::Position, Block, Borders, List, ListState, Padding, StatefulWidget, Widget},
 };
 use std::{
     collections::{BTreeMap, HashMap},
+    fmt,
     sync::{Arc, Mutex},
 };
 use tokio::sync::mpsc::Sender;
 use tracing::{error, info};
 
-#[derive(Clone, Debug, Default)]
+const TOP_LEFT_BORDER: Set = Set {
+    top_left: "┌",
+    top_right: "┐",
+    bottom_left: "│",
+    bottom_right: "│",
+    vertical_left: "│",
+    vertical_right: "│",
+    horizontal_top: "─",
+    horizontal_bottom: " ",
+};
+
+const TOP_BOX_BORDER: Set = Set {
+    top_left: "─",
+    top_right: "┐",
+    bottom_left: " ",
+    bottom_right: "│",
+    vertical_left: " ",
+    vertical_right: "│",
+    horizontal_top: "─",
+    horizontal_bottom: " ",
+};
+
+const BOTTOM_BOX_BORDER: Set = Set {
+    top_left: "─",
+    top_right: "┤",
+    bottom_left: " ",
+    bottom_right: "│",
+    vertical_left: " ",
+    vertical_right: "│",
+    horizontal_top: "─",
+    horizontal_bottom: " ",
+};
+
+const STATUS_BORDER: Set = Set {
+    top_left: " ",
+    top_right: " ",
+    bottom_left: "└",
+    bottom_right: "┘",
+    vertical_left: "│",
+    vertical_right: "│",
+    horizontal_top: " ",
+    horizontal_bottom: "─",
+};
+
+#[derive(Clone, Debug, Default, Hash, Eq, PartialEq)]
 enum FocusedView {
     #[default]
     List,
-    Info,
+    Metadata,
+    Description,
+    SetupInstructions,
+}
+
+impl fmt::Display for FocusedView {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            FocusedView::List => write!(f, "List"),
+            FocusedView::Metadata => write!(f, "Metadata"),
+            FocusedView::Description => write!(f, "Description"),
+            FocusedView::SetupInstructions => write!(f, "Setup Instructions"),
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
 struct Cached {
     workshop: Workshop,
-    languages: HashMap<spoken::Code, Vec<programming::Code>>,
-    description: String,
-    setup_instructions: String,
     license: String,
 }
 
@@ -47,8 +104,8 @@ pub struct Workshops<'a> {
     titles: List<'a>,
     /// the list state of workshop title
     titles_state: ListState,
-    /// the scrollable info window - requires lifetime for Block
-    st: ScrollText<'a>,
+    /// workshop data boxes
+    boxes: HashMap<FocusedView, ScrollBox<'a>>,
     /// currently focused view
     focused: FocusedView,
     /// the currently selected spoken language
@@ -58,6 +115,19 @@ pub struct Workshops<'a> {
 }
 
 impl Workshops<'_> {
+    /// create a new Workshops instance
+    pub fn new() -> Self {
+        Workshops {
+            boxes: [
+                (FocusedView::Metadata, ScrollBox::default()),
+                (FocusedView::Description, ScrollBox::default()),
+                (FocusedView::SetupInstructions, ScrollBox::default()),
+            ]
+            .into_iter()
+            .collect(),
+            ..Default::default()
+        }
+    }
     /// set the workshops
     async fn init(
         &mut self,
@@ -122,33 +192,94 @@ impl Workshops<'_> {
                     .await
                     .unwrap_or_default();
                 let license = workshop_data.get_license().await?;
-                self.selected = Some(Cached {
-                    workshop,
-                    languages,
-                    description,
-                    setup_instructions,
-                    license,
-                });
+
+                // update the scroll boxes
+                let mut metadata = String::new();
+                metadata.push_str("Authors: \n");
+                metadata.push_str(
+                    &workshop
+                        .authors
+                        .iter()
+                        .map(|a| format!(" - {a}"))
+                        .collect::<Vec<_>>()
+                        .join("\n"),
+                );
+                metadata.push_str("\nCopyright: ");
+                metadata.push_str(&workshop.copyright);
+                metadata.push_str("\nLicense: ");
+                metadata.push_str(&workshop.license);
+                metadata.push_str("\nHomepage: ");
+                metadata.push_str(&workshop.homepage);
+                metadata.push_str("\nDifficulty: ");
+                metadata.push_str(&workshop.difficulty);
+                metadata.push_str("\nLanguages:\n");
+                metadata.push_str(
+                    &languages
+                        .iter()
+                        .map(|(spoken_lang, programming_langs)| {
+                            format!(
+                                " - {}: {}",
+                                spoken_lang.get_name_in_native(),
+                                programming_langs
+                                    .iter()
+                                    .map(|pl| pl.get_name())
+                                    .collect::<Vec<_>>()
+                                    .join(", ")
+                            )
+                        })
+                        .collect::<Vec<_>>()
+                        .join("\n"),
+                );
+
+                for (v, b) in self.boxes.iter_mut() {
+                    match v {
+                        FocusedView::Metadata => b.set_text(&metadata),
+                        FocusedView::Description => b.set_text(&description),
+                        FocusedView::SetupInstructions => b.set_text(&setup_instructions),
+                        _ => {}
+                    }
+                }
+
+                self.selected = Some(Cached { workshop, license });
+
+                return Ok(());
             }
         }
+
+        // set the boxes to default text
+        for (v, b) in self.boxes.iter_mut() {
+            match v {
+                FocusedView::Metadata => {
+                    b.set_text("No workshops support the selected spoken and programming languages")
+                }
+                FocusedView::Description => b.set_text(""),
+                FocusedView::SetupInstructions => b.set_text(""),
+                _ => {}
+            }
+        }
+
         Ok(())
     }
 
     async fn first(&mut self) -> Result<(), Error> {
-        match self.focused {
+        match &self.focused {
             FocusedView::List => {
                 if !self.workshops.is_empty() {
                     self.titles_state.select(Some(0));
                     self.cache_selected().await?;
                 }
             }
-            FocusedView::Info => self.st.scroll_top(),
+            view => {
+                if let Some(sb) = self.boxes.get_mut(view) {
+                    sb.scroll_top();
+                }
+            }
         }
         Ok(())
     }
 
     async fn last(&mut self) -> Result<(), Error> {
-        match self.focused {
+        match &self.focused {
             FocusedView::List => {
                 if !self.workshops.is_empty() {
                     let last_index = self.workshops.len() - 1;
@@ -156,13 +287,17 @@ impl Workshops<'_> {
                     self.cache_selected().await?;
                 }
             }
-            FocusedView::Info => self.st.scroll_bottom(),
+            view => {
+                if let Some(sb) = self.boxes.get_mut(view) {
+                    sb.scroll_bottom();
+                }
+            }
         }
         Ok(())
     }
 
     async fn next(&mut self) -> Result<(), Error> {
-        match self.focused {
+        match &self.focused {
             FocusedView::List => {
                 if !self.workshops.is_empty() {
                     let selected_index = self.titles_state.selected().unwrap_or(0);
@@ -171,13 +306,17 @@ impl Workshops<'_> {
                     self.cache_selected().await?;
                 }
             }
-            FocusedView::Info => self.st.scroll_down(),
+            view => {
+                if let Some(sb) = self.boxes.get_mut(view) {
+                    sb.scroll_down();
+                }
+            }
         }
         Ok(())
     }
 
     async fn prev(&mut self) -> Result<(), Error> {
-        match self.focused {
+        match &self.focused {
             FocusedView::List => {
                 if !self.workshops.is_empty() {
                     let selected_index = self.titles_state.selected().unwrap_or(0);
@@ -190,7 +329,11 @@ impl Workshops<'_> {
                     self.cache_selected().await?;
                 }
             }
-            FocusedView::Info => self.st.scroll_up(),
+            view => {
+                if let Some(sb) = self.boxes.get_mut(view) {
+                    sb.scroll_up();
+                }
+            }
         }
         Ok(())
     }
@@ -242,15 +385,24 @@ impl Workshops<'_> {
         // figure out the titles list border fg color based on what is focused
         let fg = match self.focused {
             FocusedView::List => Color::White,
-            FocusedView::Info => Color::DarkGray,
+            _ => Color::DarkGray,
         };
 
+        let title = Line::from(vec![
+            Span::styled("─", Style::default().fg(Color::DarkGray).bg(Color::Black)),
+            Span::styled(
+                "/ Select a Workshop /",
+                Style::default().fg(fg).bg(Color::Black),
+            ),
+        ]);
         let titles = self.titles.clone().block(
             Block::default()
-                .title(" Workshops ")
-                .padding(Padding::horizontal(1))
-                .style(Style::default().fg(fg))
-                .borders(Borders::ALL),
+                .title(title)
+                .title_style(Style::default().fg(fg).bg(Color::Black))
+                .padding(Padding::uniform(1))
+                .style(Style::default().fg(Color::DarkGray).bg(Color::Black))
+                .borders(Borders::LEFT | Borders::TOP | Borders::RIGHT)
+                .border_set(TOP_LEFT_BORDER),
         );
 
         StatefulWidget::render(&titles, area, buf, &mut self.titles_state);
@@ -258,78 +410,60 @@ impl Workshops<'_> {
 
     /// render the workshop info
     fn render_workshop_info(&mut self, area: Rect, buf: &mut Buffer) {
-        let mut details = String::new();
-        match &self.selected {
-            Some(Cached {
-                workshop,
-                languages,
-                description,
-                setup_instructions,
-                ..
-            }) => {
-                details.push_str("Authors: \n");
-                details.push_str(
-                    &workshop
-                        .authors
-                        .iter()
-                        .map(|a| format!(" - {a}"))
-                        .collect::<Vec<_>>()
-                        .join("\n"),
-                );
-                details.push_str("\nCopyright: ");
-                details.push_str(&workshop.copyright);
-                details.push_str("\nLicense: ");
-                details.push_str(&workshop.license);
-                details.push_str("\nHomepage: ");
-                details.push_str(&workshop.homepage);
-                details.push_str("\nDifficulty: ");
-                details.push_str(&workshop.difficulty);
-                details.push_str("\nLanguages:\n");
-                details.push_str(
-                    &languages
-                        .iter()
-                        .map(|(spoken_lang, programming_langs)| {
-                            format!(
-                                " - {}: {}",
-                                spoken_lang.get_name_in_native(),
-                                programming_langs
-                                    .iter()
-                                    .map(|pl| pl.get_name())
-                                    .collect::<Vec<_>>()
-                                    .join(", ")
-                            )
-                        })
-                        .collect::<Vec<_>>()
-                        .join("\n"),
-                );
-                details.push_str("\n\n");
-                details.push_str(description);
-                details.push_str("\n\n");
-                details.push_str(setup_instructions);
-            }
-            None => {
-                details
-                    .push_str("No workshops support the selected spoken and programming languages");
-            }
+        let areas: [Rect; 3] = Layout::vertical([
+            Constraint::Percentage(33),
+            Constraint::Percentage(33),
+            Constraint::Percentage(34),
+        ])
+        .flex(Flex::End)
+        .areas(area);
+
+        self.render_workshop_box(areas[0], buf, FocusedView::Metadata, TOP_BOX_BORDER);
+        self.render_workshop_box(areas[1], buf, FocusedView::Description, BOTTOM_BOX_BORDER);
+        self.render_workshop_box(
+            areas[2],
+            buf,
+            FocusedView::SetupInstructions,
+            BOTTOM_BOX_BORDER,
+        );
+    }
+
+    // render the workshop box
+    fn render_workshop_box(
+        &mut self,
+        area: Rect,
+        buf: &mut Buffer,
+        view: FocusedView,
+        border_set: Set,
+    ) {
+        if let Some(b) = self.boxes.get_mut(&view) {
+            let fg = if self.focused == view {
+                Color::White
+            } else {
+                Color::DarkGray
+            };
+
+            let title = Line::from(vec![
+                Span::styled("─", Style::default().fg(Color::DarkGray).bg(Color::Black)),
+                Span::styled(
+                    format!("/ {} /", view),
+                    Style::default().fg(fg).bg(Color::Black),
+                ),
+            ]);
+            let block = Block::default()
+                .title(title)
+                .title_style(Style::default().fg(fg).bg(Color::Black))
+                .padding(Padding::top(1))
+                .style(Style::default().fg(Color::DarkGray).bg(Color::Black))
+                .borders(Borders::LEFT | Borders::TOP | Borders::RIGHT)
+                .border_set(border_set);
+
+            b.block(block);
+            b.style(Style::default().fg(Color::White).bg(Color::Black));
+
+            // render the scroll text
+            Widget::render(b, area, buf);
         }
-
-        let fg = match self.focused {
-            FocusedView::List => Color::DarkGray,
-            FocusedView::Info => Color::White,
-        };
-
-        let block = Block::default()
-            .title(" Details ")
-            .padding(Padding::horizontal(1))
-            .style(Style::default().fg(fg))
-            .borders(Borders::ALL);
-
-        self.st.block(block);
-        self.st
-            .style(Style::default().fg(Color::White).bg(Color::Black));
-
-        // render the scroll text
-        StatefulWidget::render(&mut self.st, area, buf, &mut details);
     }
 
     // render the status bar at the bottom
@@ -344,32 +478,28 @@ impl Workshops<'_> {
 
     // render the keyboard shortcuts
     fn render_keys(&mut self, area: Rect, buf: &mut Buffer) {
+        let title = Line::from(vec![
+            Span::styled("─", Style::default().fg(Color::DarkGray).bg(Color::Black)),
+            Span::styled(
+                "/ j,k scroll / ⇥ focus / ↵ select / w homepage / l license / s spoken / p programming / q quit /",
+                Style::default().fg(Color::White).bg(Color::Black),
+            ),
+        ]);
         let block = Block::default()
-            .borders(Borders::NONE)
+            .title(title)
+            .title_style(Style::default().bg(Color::Black).fg(Color::White))
+            .title_position(Position::Bottom)
+            .title_alignment(Alignment::Left)
+            .style(Style::default().fg(Color::DarkGray).bg(Color::Black))
+            .borders(Borders::LEFT | Borders::BOTTOM)
+            .border_set(STATUS_BORDER)
             .padding(Padding::horizontal(1));
 
-        let lines = [
-            "↓/↑ or j/k: scroll  |  tab: switch focus  |  enter: select",
-            "w: homepage  |  l: license  |  s: spoken lang  |  p: programming lang  |  q: quit",
-        ];
-
-        let keys = Paragraph::new(lines.join("\n"))
-            .block(block)
-            .style(Style::default().fg(Color::Black).bg(Color::White))
-            .wrap(Wrap { trim: false })
-            .alignment(Alignment::Left);
-
-        Widget::render(keys, area, buf);
+        Widget::render(block, area, buf);
     }
 
     // render the selected languages
     fn render_lang(&mut self, area: Rect, buf: &mut Buffer) {
-        let block = Block::default()
-            .borders(Borders::NONE)
-            .style(Style::default().fg(Color::Black).bg(Color::White))
-            .title_alignment(Alignment::Right)
-            .padding(Padding::horizontal(1));
-
         let spoken = match self.spoken_language {
             Some(code) => code.get_name_in_english().to_string(),
             None => "All".to_string(),
@@ -380,13 +510,25 @@ impl Workshops<'_> {
             None => "All".to_string(),
         };
 
-        let langs = Paragraph::new(format!("[ {} | {} ]", spoken, programming))
-            .block(block)
-            .style(Style::default().fg(Color::Black).bg(Color::White))
-            .wrap(Wrap { trim: false })
-            .alignment(Alignment::Right);
+        let title = Line::from(vec![
+            Span::styled(
+                format!("/ {spoken} / {programming} /"),
+                Style::default().fg(Color::White).bg(Color::Black),
+            ),
+            Span::styled("─", Style::default().fg(Color::DarkGray).bg(Color::Black)),
+        ]);
 
-        Widget::render(langs, area, buf);
+        let block = Block::default()
+            .title(title)
+            .title_style(Style::default().bg(Color::Black).fg(Color::White))
+            .title_position(Position::Bottom)
+            .title_alignment(Alignment::Right)
+            .style(Style::default().fg(Color::DarkGray).bg(Color::Black))
+            .borders(Borders::RIGHT | Borders::BOTTOM)
+            .border_set(STATUS_BORDER)
+            .padding(Padding::horizontal(1));
+
+        Widget::render(block, area, buf);
     }
 
     /// handle UI events
@@ -476,11 +618,23 @@ impl Workshops<'_> {
                     }
                 }
                 KeyCode::Tab => {
-                    info!("Switch focus");
-                    self.focused = match self.focused {
-                        FocusedView::List => FocusedView::Info,
-                        FocusedView::Info => FocusedView::List,
-                    };
+                    if key.modifiers.contains(event::KeyModifiers::SHIFT) {
+                        // switch focus to the previous view
+                        self.focused = match self.focused {
+                            FocusedView::List => FocusedView::SetupInstructions,
+                            FocusedView::Metadata => FocusedView::List,
+                            FocusedView::Description => FocusedView::Metadata,
+                            FocusedView::SetupInstructions => FocusedView::Description,
+                        };
+                    } else {
+                        // switch focus to the next view
+                        self.focused = match self.focused {
+                            FocusedView::List => FocusedView::Metadata,
+                            FocusedView::Metadata => FocusedView::Description,
+                            FocusedView::Description => FocusedView::SetupInstructions,
+                            FocusedView::SetupInstructions => FocusedView::List,
+                        };
+                    }
                 }
                 KeyCode::Enter => {
                     to_ui

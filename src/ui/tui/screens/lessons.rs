@@ -10,7 +10,12 @@ use ratatui::{
     buffer::Buffer,
     layout::{Alignment, Constraint, Flex, Layout, Rect},
     style::{Color, Modifier, Style},
-    widgets::{Block, Borders, List, ListState, Padding, Paragraph, StatefulWidget, Widget, Wrap},
+    symbols::border::Set,
+    text::{Line, Span},
+    widgets::{
+        block::Position, Block, Borders, List, ListState, Padding, StatefulWidget,
+        Widget,
+    },
 };
 use std::{
     collections::{BTreeMap, HashMap},
@@ -19,7 +24,40 @@ use std::{
 use tokio::sync::mpsc::Sender;
 use tracing::info;
 
-#[derive(Clone, Debug, Default)]
+const TOP_LEFT_BORDER: Set = Set {
+    top_left: "┌",
+    top_right: "┐",
+    bottom_left: "│",
+    bottom_right: "│",
+    vertical_left: "│",
+    vertical_right: "│",
+    horizontal_top: "─",
+    horizontal_bottom: " ",
+};
+
+const TOP_BOX_BORDER: Set = Set {
+    top_left: "─",
+    top_right: "┐",
+    bottom_left: " ",
+    bottom_right: "│",
+    vertical_left: " ",
+    vertical_right: "│",
+    horizontal_top: "─",
+    horizontal_bottom: " ",
+};
+
+const STATUS_BORDER: Set = Set {
+    top_left: " ",
+    top_right: " ",
+    bottom_left: "└",
+    bottom_right: "┘",
+    vertical_left: "│",
+    vertical_right: "│",
+    horizontal_top: " ",
+    horizontal_bottom: "─",
+};
+
+#[derive(Clone, Debug, Default, PartialEq)]
 enum FocusedView {
     #[default]
     List,
@@ -32,6 +70,8 @@ pub struct Lessons<'a> {
     lessons: HashMap<String, LessonData>,
     /// the cached selected lesson data
     selected: Option<Lesson>,
+    /// the title of the workshop
+    workshop_title: String,
     /// the map of lesson titles to lesson keys
     titles_map: BTreeMap<String, String>,
     /// the cached list
@@ -50,13 +90,15 @@ pub struct Lessons<'a> {
 
 impl Lessons<'_> {
     /// set the lessons
-    async fn init(
+    async fn init<S: AsRef<str>>(
         &mut self,
         lessons: &HashMap<String, LessonData>,
+        workshop_title: S,
         spoken_language: Option<spoken::Code>,
         programming_language: Option<programming::Code>,
     ) -> Result<(), Error> {
         self.lessons = lessons.clone();
+        self.workshop_title = workshop_title.as_ref().to_string();
         self.spoken_language = spoken_language;
         self.programming_language = programming_language;
 
@@ -198,15 +240,21 @@ impl Lessons<'_> {
         // figure out the titles list border fg color based on what is focused
         let fg = match self.focused {
             FocusedView::List => Color::White,
-            FocusedView::Info => Color::DarkGray,
+            _ => Color::DarkGray,
         };
 
+        let title = Line::from(vec![
+            Span::styled("─", Style::default().fg(Color::DarkGray).bg(Color::Black)),
+            Span::styled("/ Select a Lesson /", Style::default().fg(fg).bg(Color::Black)),
+        ]);
         let titles = self.titles.clone().block(
             Block::default()
-                .title(" lessons ")
-                .padding(Padding::horizontal(1))
-                .style(Style::default().fg(fg))
-                .borders(Borders::ALL),
+                .title(title)
+                .title_style(Style::default().fg(fg).bg(Color::Black))
+                .padding(Padding::uniform(1))
+                .style(Style::default().fg(Color::DarkGray).bg(Color::Black))
+                .borders(Borders::LEFT | Borders::TOP | Borders::RIGHT)
+                .border_set(TOP_LEFT_BORDER),
         );
 
         StatefulWidget::render(&titles, area, buf, &mut self.titles_state);
@@ -214,25 +262,34 @@ impl Lessons<'_> {
 
     /// render the lesson info
     fn render_lesson_info(&mut self, area: Rect, buf: &mut Buffer) {
+        let fg = if self.focused == FocusedView::Info {
+            Color::White
+        } else {
+            Color::DarkGray
+        };
+
         let mut description = match &self.selected {
             Some(lesson) => lesson.description.clone(),
             None => "No lessons support the selected spoken and programming languages".to_string(),
         };
 
-        let fg = match self.focused {
-            FocusedView::List => Color::DarkGray,
-            FocusedView::Info => Color::White,
-        };
-
+        let title = Line::from(vec![
+            Span::styled("─", Style::default().fg(Color::DarkGray).bg(Color::Black)),
+            Span::styled(
+                "/ Description /",
+                Style::default().fg(fg).bg(Color::Black),
+            ),
+        ]);
         let block = Block::default()
-            .title(" Description ")
-            .padding(Padding::horizontal(1))
-            .style(Style::default().fg(fg))
-            .borders(Borders::ALL);
+            .title(title)
+            .title_style(Style::default().fg(fg).bg(Color::Black))
+            .padding(Padding::top(1))
+            .style(Style::default().fg(Color::DarkGray).bg(Color::Black))
+            .borders(Borders::LEFT | Borders::TOP | Borders::RIGHT)
+            .border_set(TOP_BOX_BORDER);
 
         self.st.block(block);
-        self.st
-            .style(Style::default().fg(Color::White).bg(Color::Black));
+        self.st.style(Style::default().fg(Color::White).bg(Color::Black));
 
         // render the scroll text
         StatefulWidget::render(&mut self.st, area, buf, &mut description);
@@ -242,7 +299,7 @@ impl Lessons<'_> {
     fn render_status(&mut self, area: Rect, buf: &mut Buffer) {
         // render the status bar at the bottom
         let [keys_area, langs_area] =
-            Layout::horizontal([Constraint::Min(1), Constraint::Length(27)]).areas(area);
+            Layout::horizontal([Constraint::Min(1), Constraint::Length(40)]).areas(area);
 
         self.render_keys(keys_area, buf);
         self.render_langs(langs_area, buf);
@@ -250,29 +307,28 @@ impl Lessons<'_> {
 
     // render the keyboard shortcuts
     fn render_keys(&mut self, area: Rect, buf: &mut Buffer) {
+        let title = Line::from(vec![
+            Span::styled("─", Style::default().fg(Color::DarkGray).bg(Color::Black)),
+            Span::styled(
+                "/ j,k scroll / ⇥ focus / ↵ select / b back / q quit /",
+                Style::default().fg(Color::White).bg(Color::Black),
+            ),
+        ]);
         let block = Block::default()
-            .borders(Borders::NONE)
+            .title(title)
+            .title_style(Style::default().bg(Color::Black).fg(Color::White))
+            .title_position(Position::Bottom)
+            .title_alignment(Alignment::Left)
+            .style(Style::default().fg(Color::DarkGray).bg(Color::Black))
+            .borders(Borders::LEFT | Borders::BOTTOM)
+            .border_set(STATUS_BORDER)
             .padding(Padding::horizontal(1));
 
-        let keys = Paragraph::new(
-            "↓/↑ or j/k: scroll  |  tab: switch focus  |  enter: select  |  b: back  |  q: quit",
-        )
-        .block(block)
-        .style(Style::default().fg(Color::Black).bg(Color::White))
-        .wrap(Wrap { trim: false })
-        .alignment(Alignment::Left);
-
-        Widget::render(keys, area, buf);
+        Widget::render(block, area, buf);
     }
 
     // render the frames per second
     fn render_langs(&mut self, area: Rect, buf: &mut Buffer) {
-        let block = Block::default()
-            .borders(Borders::NONE)
-            .style(Style::default().fg(Color::Black).bg(Color::White))
-            .title_alignment(Alignment::Right)
-            .padding(Padding::horizontal(1));
-
         let spoken = match self.spoken_language {
             Some(code) => code.get_name_in_english().to_string(),
             None => "All".to_string(),
@@ -283,13 +339,25 @@ impl Lessons<'_> {
             None => "All".to_string(),
         };
 
-        let langs = Paragraph::new(format!("[ {} | {} ]", spoken, programming))
-            .block(block)
-            .style(Style::default().fg(Color::Black).bg(Color::White))
-            .wrap(Wrap { trim: false })
-            .alignment(Alignment::Right);
+        let title = Line::from(vec![
+            Span::styled(
+                format!("/ {} / {spoken} / {programming} /", self.workshop_title),
+                Style::default().fg(Color::White).bg(Color::Black),
+            ),
+            Span::styled("─", Style::default().fg(Color::DarkGray).bg(Color::Black)),
+        ]);
 
-        Widget::render(langs, area, buf);
+        let block = Block::default()
+            .title(title)
+            .title_style(Style::default().bg(Color::Black).fg(Color::White))
+            .title_position(Position::Bottom)
+            .title_alignment(Alignment::Right)
+            .style(Style::default().fg(Color::DarkGray).bg(Color::Black))
+            .borders(Borders::RIGHT | Borders::BOTTOM)
+            .border_set(STATUS_BORDER)
+            .padding(Padding::horizontal(1));
+
+        Widget::render(block, area, buf);
     }
 
     /// handle UI events
@@ -315,7 +383,9 @@ impl Lessons<'_> {
                 if let Some(workshop_data) = fs::workshops::load(&workshop) {
                     info!("Loading lessons for workshop: {}", &workshop);
                     let lessons = workshop_data.get_lessons_data(spoken, programming).await?;
-                    self.init(&lessons, spoken, programming).await?;
+                    let workshop_title = workshop_data.get_metadata(spoken).await?.title;
+                    self.init(&lessons, workshop_title, spoken, programming)
+                        .await?;
                     to_ui
                         .send((None, tui::Event::Show(screens::Screens::Lessons)).into())
                         .await?;
@@ -349,7 +419,6 @@ impl Lessons<'_> {
                         .await?;
                 }
                 KeyCode::Tab => {
-                    info!("Switch focus");
                     self.focused = match self.focused {
                         FocusedView::List => FocusedView::Info,
                         FocusedView::Info => FocusedView::List,
@@ -385,10 +454,12 @@ impl Screen for Lessons<'_> {
 
     fn render_screen(&mut self, area: Rect, buf: &mut Buffer) -> Result<(), Error> {
         // this splits the screen into a top area and a one-line bottom area
-        let [lessons_area, status_area] =
-            Layout::vertical([Constraint::Percentage(100), Constraint::Min(1)])
-                .flex(Flex::End)
-                .areas(area);
+        let [lessons_area, status_area] = Layout::vertical([
+            Constraint::Percentage(100),
+            Constraint::Min(1),
+        ])
+        .flex(Flex::End)
+        .areas(area);
 
         self.render_lessons(lessons_area, buf);
         self.render_status(status_area, buf);

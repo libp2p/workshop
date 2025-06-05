@@ -192,6 +192,8 @@ impl StatefulWidget for &mut ScrollText<'_> {
                     .viewport_content_length(self.window_lines);
             let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
                 .begin_symbol(Some("↑"))
+                .track_symbol(Some("│"))
+                .thumb_symbol("█")
                 .end_symbol(Some("↓"));
             StatefulWidget::render(scrollbar, scrollbar_area, buf, &mut scrollbar_state);
         }

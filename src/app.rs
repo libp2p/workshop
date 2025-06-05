@@ -72,7 +72,7 @@ impl App {
         screens.insert(Screens::Welcome, Box::new(screens::Welcome::default()));
 
         // Workshop Selection Screen
-        screens.insert(Screens::Workshops, Box::new(screens::Workshops::default()));
+        screens.insert(Screens::Workshops, Box::new(screens::Workshops::new()));
 
         // Log Screen
         screens.insert(Screens::Log, Box::new(screens::Log::new(MAX_LOG_LINES)));
@@ -402,15 +402,24 @@ impl App {
                     to_ui.send((None, tui::Event::ToggleLog).into()).await?
                 }
                 _ => {
-                    // pass the key events to the current screen
-                    let current_screen = self.screen.load(Ordering::SeqCst).into();
-                    if let Some(screen_state) = self.screens.get_mut(&current_screen) {
-                        return screen_state.handle_event(event.into(), to_ui, status).await;
+                    if self.log.load(Ordering::SeqCst) {
+                        // send key events to the log window if it is showing
+                        if let Some(screen) = self.screens.get_mut(&Screens::Log) {
+                            return screen.handle_event(event.into(), to_ui, status).await;
+                        } else {
+                            error!("Log screen not found");
+                        }
                     } else {
-                        return Err(Error::Tui(format!(
-                            "Unknown screen type: {}",
-                            current_screen
-                        )));
+                        // pass the key events to the current screen
+                        let current_screen = self.screen.load(Ordering::SeqCst).into();
+                        if let Some(screen) = self.screens.get_mut(&current_screen) {
+                            return screen.handle_event(event.into(), to_ui, status).await;
+                        } else {
+                            return Err(Error::Tui(format!(
+                                "Unknown screen type: {}",
+                                current_screen
+                            )));
+                        }
                     }
                 }
             }
