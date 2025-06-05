@@ -42,4 +42,10 @@ pub enum Event {
     SolutionSuccess,
     /// the solution is a failure
     SolutionFailure,
+    /// command started (show log screen)
+    CommandStarted,
+    /// command completed
+    CommandCompleted { success: bool },
+    /// command output (stdout)
+    CommandOutput(String),
 }

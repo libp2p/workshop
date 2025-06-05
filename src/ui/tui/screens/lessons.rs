@@ -12,10 +12,7 @@ use ratatui::{
     style::{Color, Modifier, Style},
     symbols::border::Set,
     text::{Line, Span},
-    widgets::{
-        block::Position, Block, Borders, List, ListState, Padding, StatefulWidget,
-        Widget,
-    },
+    widgets::{block::Position, Block, Borders, List, ListState, Padding, StatefulWidget, Widget},
 };
 use std::{
     collections::{BTreeMap, HashMap},
@@ -245,7 +242,10 @@ impl Lessons<'_> {
 
         let title = Line::from(vec![
             Span::styled("─", Style::default().fg(Color::DarkGray).bg(Color::Black)),
-            Span::styled("/ Select a Lesson /", Style::default().fg(fg).bg(Color::Black)),
+            Span::styled(
+                "/ Select a Lesson /",
+                Style::default().fg(fg).bg(Color::Black),
+            ),
         ]);
         let titles = self.titles.clone().block(
             Block::default()
@@ -275,10 +275,7 @@ impl Lessons<'_> {
 
         let title = Line::from(vec![
             Span::styled("─", Style::default().fg(Color::DarkGray).bg(Color::Black)),
-            Span::styled(
-                "/ Description /",
-                Style::default().fg(fg).bg(Color::Black),
-            ),
+            Span::styled("/ Description /", Style::default().fg(fg).bg(Color::Black)),
         ]);
         let block = Block::default()
             .title(title)
@@ -289,7 +286,8 @@ impl Lessons<'_> {
             .border_set(TOP_BOX_BORDER);
 
         self.st.block(block);
-        self.st.style(Style::default().fg(Color::White).bg(Color::Black));
+        self.st
+            .style(Style::default().fg(Color::White).bg(Color::Black));
 
         // render the scroll text
         StatefulWidget::render(&mut self.st, area, buf, &mut description);
@@ -454,12 +452,10 @@ impl Screen for Lessons<'_> {
 
     fn render_screen(&mut self, area: Rect, buf: &mut Buffer) -> Result<(), Error> {
         // this splits the screen into a top area and a one-line bottom area
-        let [lessons_area, status_area] = Layout::vertical([
-            Constraint::Percentage(100),
-            Constraint::Min(1),
-        ])
-        .flex(Flex::End)
-        .areas(area);
+        let [lessons_area, status_area] =
+            Layout::vertical([Constraint::Percentage(100), Constraint::Min(1)])
+                .flex(Flex::End)
+                .areas(area);
 
         self.render_lessons(lessons_area, buf);
         self.render_status(status_area, buf);

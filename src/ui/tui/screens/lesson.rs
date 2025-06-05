@@ -1,7 +1,11 @@
 use crate::{
     fs,
     languages::{programming, spoken},
-    ui::tui::{self, screens, widgets::{LessonBox, LessonBoxState}, Screen},
+    ui::tui::{
+        self, screens,
+        widgets::{LessonBox, LessonBoxState},
+        Screen,
+    },
     Error, Status,
 };
 use crossterm::event::{self, KeyCode};
@@ -204,6 +208,14 @@ impl Lesson {
                     info!("Failed to load workshop data for: {}", &workshop);
                 }
             }
+            tui::Event::SolutionSuccess => {
+                info!("Solution check: SUCCESS");
+                // TODO: Could add visual feedback like temporary status message
+            }
+            tui::Event::SolutionFailure => {
+                info!("Solution check: FAILURE");
+                // TODO: Could add visual feedback like temporary status message
+            }
             _ => {
                 info!("Ignoring UI event: {:?}", event);
             }
@@ -222,14 +234,22 @@ impl Lesson {
             match key.code {
                 KeyCode::PageUp => self.lesson_state.scroll_top(),
                 KeyCode::PageDown => self.lesson_state.scroll_bottom(),
-                KeyCode::Char('j') | KeyCode::Char('J') | KeyCode::Down => self.lesson_state.highlight_down(),
-                KeyCode::Char('k') | KeyCode::Char('K') | KeyCode::Up => self.lesson_state.highlight_up(),
+                KeyCode::Char('j') | KeyCode::Char('J') | KeyCode::Down => {
+                    self.lesson_state.highlight_down()
+                }
+                KeyCode::Char('k') | KeyCode::Char('K') | KeyCode::Up => {
+                    self.lesson_state.highlight_up()
+                }
                 KeyCode::Tab => {
                     // Tab key for hint navigation - could be expanded later
                 }
                 KeyCode::Enter => {
                     // Toggle hint if highlighted line is a hint title
                     self.lesson_state.toggle_highlighted_hint(80); // Default width, could be dynamic
+                }
+                KeyCode::Char('c') | KeyCode::Char('C') => {
+                    // Check solution
+                    to_ui.send((None, tui::Event::CheckSolution).into()).await?;
                 }
                 KeyCode::Char('b') | KeyCode::Esc => {
                     to_ui

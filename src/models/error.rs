@@ -73,4 +73,8 @@ pub enum Error {
     /// Lesson data directory not found
     #[error("Lesson data directory not found")]
     LessonDataDirNotFound,
+
+    /// Workshop data directory not found
+    #[error("Workshop data directory not found")]
+    WorkshopDataDirNotFound,
 }

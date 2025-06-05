@@ -1,4 +1,5 @@
 use crate::{
+    command::CommandRunner,
     fs,
     ui::tui::{
         self,
@@ -43,6 +44,8 @@ pub struct App {
     receiver: Receiver<screens::Event>,
     /// the sender for UI events
     sender: Sender<screens::Event>,
+    /// command runner for external processes
+    command_runner: CommandRunner,
 }
 
 impl App {
@@ -50,6 +53,7 @@ impl App {
     pub fn new(from_logger: Receiver<String>) -> Result<Self, Error> {
         info!("creating UI");
         let (sender, receiver) = tokio::sync::mpsc::channel(1_000_000);
+        let command_runner = CommandRunner::new(sender.clone());
 
         Ok(Self {
             from_logger,
@@ -60,6 +64,7 @@ impl App {
             token: CancellationToken::new(),
             receiver,
             sender,
+            command_runner,
         })
     }
 
@@ -103,6 +108,11 @@ impl App {
 
         info!("screens created: {:?}", screens.keys());
         screens
+    }
+
+    /// Get a reference to the command runner
+    pub fn command_runner(&self) -> &CommandRunner {
+        &self.command_runner
     }
 
     /// async run loop
@@ -321,14 +331,90 @@ impl App {
                     info!("UI event: Workshop set: {:?}", workshop);
                     if let Some(workshop) = workshop {
                         info!("Setting workshop: {:?}", workshop);
-                        {
+                        let (programming_language, spoken_language) = {
                             let mut status = self.status.lock().unwrap();
                             status.set_workshop(Some(workshop.clone()));
                             fs::workshops::init_data_dir(&workshop)?;
+
+                            // Get current languages
+                            (status.programming_language(), status.spoken_language())
+                        };
+
+                        // Run dependency check using workshop data (with fallback to defaults)
+                        if let Some(workshop_data) = fs::workshops::load(&workshop) {
+                            info!("Running dependency check for workshop: '{}'", workshop);
+
+                            // Get deps.py path using workshop model (handles defaults automatically)
+                            match workshop_data
+                                .get_deps_script_path(spoken_language, programming_language)
+                            {
+                                Ok(deps_script) => {
+                                    info!(
+                                        "Attempting to run dependency script: {}",
+                                        deps_script.display()
+                                    );
+                                    info!("Script exists: {}", deps_script.exists());
+
+                                    // Run dependency check in background
+                                    let command_runner = self.command_runner.clone();
+                                    let token = self.token.clone();
+                                    let sender = to_ui.clone();
+
+                                    tokio::spawn(async move {
+                                        match command_runner
+                                            .check_dependencies(&deps_script, &token)
+                                            .await
+                                        {
+                                            Ok(result) => {
+                                                info!(
+                                                    "Dependency check completed with exit code: {}",
+                                                    result.exit_code
+                                                );
+                                                // Send LoadLessons event after dependency check completes
+                                                let _ = sender
+                                                    .send(
+                                                        (
+                                                            Some(Screens::Lessons),
+                                                            tui::Event::LoadLessons,
+                                                        )
+                                                            .into(),
+                                                    )
+                                                    .await;
+                                            }
+                                            Err(e) => {
+                                                error!("Failed to check dependencies: {}", e);
+                                                // Still proceed to lessons even if dependency check fails
+                                                let _ = sender
+                                                    .send(
+                                                        (
+                                                            Some(Screens::Lessons),
+                                                            tui::Event::LoadLessons,
+                                                        )
+                                                            .into(),
+                                                    )
+                                                    .await;
+                                            }
+                                        }
+                                    });
+                                }
+                                Err(e) => {
+                                    error!("Failed to get deps script path: {}", e);
+                                    // Proceed to lessons even if we can't get the script path
+                                    to_ui
+                                        .send(
+                                            (Some(Screens::Lessons), tui::Event::LoadLessons)
+                                                .into(),
+                                        )
+                                        .await?;
+                                }
+                            }
+                        } else {
+                            error!("Failed to load workshop data for: {}", workshop);
+                            // Proceed to lessons even if workshop data loading fails
+                            to_ui
+                                .send((Some(Screens::Lessons), tui::Event::LoadLessons).into())
+                                .await?;
                         }
-                        to_ui
-                            .send((Some(Screens::Lessons), tui::Event::LoadLessons).into())
-                            .await?;
                     } else {
                         info!("Clearing workshop");
                         {
@@ -359,6 +445,101 @@ impl App {
                         }
                         to_ui
                             .send((Some(Screens::Lessons), tui::Event::LoadLessons).into())
+                            .await?;
+                    }
+                }
+                tui::Event::CommandStarted => {
+                    info!("UI event: Command started - showing log screen");
+                    self.log.store(true, Ordering::SeqCst);
+                }
+                tui::Event::CommandCompleted { success } => {
+                    info!("UI event: Command completed - success: {}", success);
+                    if success {
+                        // Hide log screen on successful command completion
+                        self.log.store(false, Ordering::SeqCst);
+                    }
+                    // If command failed, leave log screen visible so user can see errors
+                }
+                tui::Event::CommandOutput(output) => {
+                    // Forward command output directly to Log screen
+                    to_ui
+                        .send((Some(Screens::Log), tui::Event::Log(output)).into())
+                        .await?;
+                }
+                tui::Event::CheckSolution => {
+                    info!("UI event: Check solution");
+                    // Get current status information
+                    let (spoken, programming, workshop, lesson) = {
+                        let status = status
+                            .lock()
+                            .map_err(|e| Error::StatusLock(e.to_string()))?;
+                        (
+                            status.spoken_language(),
+                            status.programming_language(),
+                            status.workshop(),
+                            status.lesson(),
+                        )
+                    };
+
+                    // Check if we have required workshop and lesson
+                    if let (Some(workshop), Some(lesson)) = (workshop, lesson) {
+                        if let Some(workshop_data) = fs::workshops::load(&workshop) {
+                            info!("Running solution check for lesson: '{}'", lesson);
+
+                            // Get lesson directory path using workshop model (handles defaults automatically)
+                            match workshop_data.get_lesson_dir_path(&lesson, spoken, programming) {
+                                Ok(lesson_dir) => {
+                                    info!(
+                                        "Solution check lesson directory: {}",
+                                        lesson_dir.display()
+                                    );
+
+                                    // Spawn async task to run solution check
+                                    let command_runner = self.command_runner.clone();
+                                    let token = self.token.clone();
+                                    let sender = to_ui.clone();
+
+                                    tokio::spawn(async move {
+                                        match command_runner
+                                            .check_solution(&lesson_dir, &token)
+                                            .await
+                                        {
+                                            Ok(result) => {
+                                                let event = if result.success {
+                                                    tui::Event::SolutionSuccess
+                                                } else {
+                                                    tui::Event::SolutionFailure
+                                                };
+                                                let _ = sender.send((None, event).into()).await;
+                                            }
+                                            Err(e) => {
+                                                error!("Failed to check solution: {}", e);
+                                                let _ = sender
+                                                    .send(
+                                                        (None, tui::Event::SolutionFailure).into(),
+                                                    )
+                                                    .await;
+                                            }
+                                        }
+                                    });
+                                }
+                                Err(e) => {
+                                    error!("Failed to get lesson directory path: {}", e);
+                                    to_ui
+                                        .send((None, tui::Event::SolutionFailure).into())
+                                        .await?;
+                                }
+                            }
+                        } else {
+                            error!("Failed to load workshop data for: {}", workshop);
+                            to_ui
+                                .send((None, tui::Event::SolutionFailure).into())
+                                .await?;
+                        }
+                    } else {
+                        error!("Cannot check solution: missing workshop or lesson selection");
+                        to_ui
+                            .send((None, tui::Event::SolutionFailure).into())
                             .await?;
                     }
                 }

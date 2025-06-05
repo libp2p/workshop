@@ -1,20 +1,22 @@
+use crate::ui::tui::widgets::scrolltext::Scroll;
+use pulldown_cmark::{Event, Parser, Tag, TagEnd};
 use ratatui::{
     buffer::Buffer,
     layout::{Alignment, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState, StatefulWidget, Widget},
+    widgets::{
+        Block, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState, StatefulWidget, Widget,
+    },
 };
-use pulldown_cmark::{Event, Parser, Tag, TagEnd};
-use crate::ui::tui::widgets::scrolltext::Scroll;
 
 /// Trait for content blocks that can be rendered to styled text lines
 pub trait ContentBlock {
     /// Render the content block to a list of styled text lines
-    /// 
+    ///
     /// # Arguments
     /// * `width` - The width of the render area for text wrapping
-    /// 
+    ///
     /// # Returns
     /// A vector of ratatui Line objects with proper styling
     fn render(&self, width: u16) -> Vec<Line<'static>>;
@@ -32,7 +34,7 @@ impl ContentBlock for Heading {
         let style = Style::default()
             .fg(Color::Blue)
             .add_modifier(Modifier::BOLD);
-        
+
         let wrapped_lines = textwrap::wrap(&self.text, width as usize);
         wrapped_lines
             .into_iter()
@@ -69,10 +71,10 @@ impl ContentBlock for ListItem {
         let style = Style::default().fg(Color::LightYellow);
         let indent = "  ".repeat(self.indent_level as usize);
         let prefixed_text = format!("{}• {}", indent, self.text);
-        
+
         let available_width = width.saturating_sub(indent.len() as u16 + 2);
         let wrapped_lines = textwrap::wrap(&prefixed_text, available_width.max(10) as usize);
-        
+
         wrapped_lines
             .into_iter()
             .map(|line| Line::from(Span::styled(line.to_string(), style)))
@@ -131,7 +133,7 @@ impl CodeBlock {
     /// Render code block with syntax highlighting
     fn render_with_syntax_highlighting(&self, language: &str) -> Vec<Line<'static>> {
         let default_style = Style::default().fg(Color::White).bg(Color::Black);
-        
+
         // Simple syntax highlighting based on common patterns
         let lines: Vec<&str> = self.code.lines().collect();
         lines
@@ -140,42 +142,45 @@ impl CodeBlock {
                 let mut spans = Vec::new();
                 let trimmed = line.trim_start();
                 let indent = " ".repeat(line.len() - trimmed.len());
-                
+
                 if !indent.is_empty() {
                     spans.push(Span::styled(indent, default_style));
                 }
-                
+
                 // Apply simple syntax highlighting based on language
                 let styled_content = match language {
                     "rust" => self.highlight_rust_line(trimmed),
                     "python" => self.highlight_python_line(trimmed),
                     _ => vec![Span::styled(trimmed.to_string(), default_style)],
                 };
-                
+
                 spans.extend(styled_content);
                 Line::from(spans)
             })
             .collect()
     }
-    
+
     /// Simple Rust syntax highlighting
     fn highlight_rust_line(&self, line: &str) -> Vec<Span<'static>> {
-        let keywords = ["fn", "let", "mut", "if", "else", "for", "while", "match", "impl", "struct", "enum", "use", "pub"];
+        let keywords = [
+            "fn", "let", "mut", "if", "else", "for", "while", "match", "impl", "struct", "enum",
+            "use", "pub",
+        ];
         let keyword_style = Style::default().fg(Color::LightBlue).bg(Color::Black);
         let string_style = Style::default().fg(Color::Green).bg(Color::Black);
         let comment_style = Style::default().fg(Color::Gray).bg(Color::Black);
         let _function_style = Style::default().fg(Color::Yellow).bg(Color::Black);
         let default_style = Style::default().fg(Color::White).bg(Color::Black);
-        
+
         if line.trim_start().starts_with("//") {
             return vec![Span::styled(line.to_string(), comment_style)];
         }
-        
+
         let mut spans = Vec::new();
         let mut current_word = String::new();
         let mut in_string = false;
         let mut chars = line.chars().peekable();
-        
+
         while let Some(ch) = chars.next() {
             match ch {
                 '"' => {
@@ -192,7 +197,7 @@ impl CodeBlock {
                     }
                     current_word.push(ch);
                     in_string = !in_string;
-                    
+
                     if !in_string {
                         spans.push(Span::styled(current_word.clone(), string_style));
                         current_word.clear();
@@ -219,7 +224,7 @@ impl CodeBlock {
                 }
             }
         }
-        
+
         if !current_word.is_empty() {
             let style = if in_string {
                 string_style
@@ -232,35 +237,41 @@ impl CodeBlock {
             };
             spans.push(Span::styled(current_word, style));
         }
-        
+
         spans
     }
-    
+
     /// Simple Python syntax highlighting
     fn highlight_python_line(&self, line: &str) -> Vec<Span<'static>> {
-        let keywords = ["def", "class", "if", "elif", "else", "for", "while", "try", "except", "import", "from", "return", "print"];
+        let keywords = [
+            "def", "class", "if", "elif", "else", "for", "while", "try", "except", "import",
+            "from", "return", "print",
+        ];
         let keyword_style = Style::default().fg(Color::LightBlue).bg(Color::Black);
         let string_style = Style::default().fg(Color::Green).bg(Color::Black);
         let comment_style = Style::default().fg(Color::Gray).bg(Color::Black);
         let _function_style = Style::default().fg(Color::Yellow).bg(Color::Black);
         let default_style = Style::default().fg(Color::White).bg(Color::Black);
-        
+
         if line.trim_start().starts_with('#') {
             return vec![Span::styled(line.to_string(), comment_style)];
         }
-        
+
         // Simple keyword-based highlighting for Python
         let words: Vec<&str> = line.split_whitespace().collect();
         let mut spans = Vec::new();
         let mut pos = 0;
-        
+
         for word in words {
             // Add any whitespace before the word
             while pos < line.len() && line.chars().nth(pos).unwrap().is_whitespace() {
-                spans.push(Span::styled(line.chars().nth(pos).unwrap().to_string(), default_style));
+                spans.push(Span::styled(
+                    line.chars().nth(pos).unwrap().to_string(),
+                    default_style,
+                ));
                 pos += 1;
             }
-            
+
             let style = if keywords.contains(&word.trim_end_matches(['(', ':', ')', '"'])) {
                 keyword_style
             } else if word.contains('"') || word.contains('\'') {
@@ -268,20 +279,18 @@ impl CodeBlock {
             } else {
                 default_style
             };
-            
+
             spans.push(Span::styled(word.to_string(), style));
             pos += word.len();
         }
-        
+
         spans
     }
-    
+
     /// Render code block with plain styling
     fn render_plain(&self) -> Vec<Line<'static>> {
-        let style = Style::default()
-            .bg(Color::Black)
-            .fg(Color::White);
-            
+        let style = Style::default().bg(Color::Black).fg(Color::White);
+
         let lines: Vec<&str> = self.code.lines().collect();
         lines
             .into_iter()
@@ -290,7 +299,6 @@ impl CodeBlock {
     }
 }
 
-
 impl ContentBlock for Hint {
     fn render(&self, width: u16) -> Vec<Line<'static>> {
         if self.expanded {
@@ -298,17 +306,17 @@ impl ContentBlock for Hint {
             let title_style = Style::default()
                 .fg(Color::Cyan)
                 .add_modifier(Modifier::BOLD);
-            
+
             let mut lines = vec![Line::from(Span::styled(
                 format!("▼ {}", self.title),
                 title_style,
             ))];
-            
+
             // Add blank line after title if there's content
             if !self.content.is_empty() {
                 lines.push(Line::from(""));
             }
-            
+
             // Render all content blocks recursively with blank lines between them
             for (i, content) in self.content.iter().enumerate() {
                 // Add blank line before each content block (except first)
@@ -317,14 +325,14 @@ impl ContentBlock for Hint {
                 }
                 lines.extend(content.render(width));
             }
-            
+
             lines
         } else {
             // When collapsed, show only title with right arrow
             let title_style = Style::default()
                 .fg(Color::Cyan)
                 .add_modifier(Modifier::BOLD);
-                
+
             vec![Line::from(Span::styled(
                 format!("▶ {}", self.title),
                 title_style,
@@ -338,7 +346,7 @@ impl Hint {
     pub fn toggle(&mut self) {
         self.expanded = !self.expanded;
     }
-    
+
     /// Create a new collapsed hint
     pub fn new(title: String, content: Vec<Content>) -> Self {
         Self {
@@ -375,15 +383,18 @@ pub fn parse_markdown(markdown: &str) -> Vec<Content> {
             Event::End(TagEnd::Heading(_)) => {
                 if in_heading {
                     let text = current_text.trim().to_string();
-                    
+
                     // Check if this is a hint heading (H2 starting with "Hint - ")
                     if heading_level == 2 && text.starts_with("Hint - ") {
                         // If we were already collecting a hint, finish it first
                         if collecting_hint && !hint_title.is_empty() {
-                            content_blocks.push(Content::Hint(Hint::new(hint_title.clone(), hint_content.clone())));
+                            content_blocks.push(Content::Hint(Hint::new(
+                                hint_title.clone(),
+                                hint_content.clone(),
+                            )));
                             hint_content.clear();
                         }
-                        
+
                         // Start collecting new hint
                         collecting_hint = true;
                         hint_title = text.strip_prefix("Hint - ").unwrap_or(&text).to_string();
@@ -393,14 +404,14 @@ pub fn parse_markdown(markdown: &str) -> Vec<Content> {
                             level: heading_level,
                             text,
                         };
-                        
+
                         if collecting_hint {
                             hint_content.push(Content::Heading(heading));
                         } else {
                             content_blocks.push(Content::Heading(heading));
                         }
                     }
-                    
+
                     in_heading = false;
                     current_text.clear();
                 }
@@ -414,7 +425,7 @@ pub fn parse_markdown(markdown: &str) -> Vec<Content> {
                     let paragraph = ParagraphBlock {
                         text: current_text.trim().to_string(),
                     };
-                    
+
                     if collecting_hint {
                         hint_content.push(Content::Paragraph(paragraph));
                     } else {
@@ -434,7 +445,7 @@ pub fn parse_markdown(markdown: &str) -> Vec<Content> {
                         text: current_text.trim().to_string(),
                         indent_level: 0, // TODO: handle nested lists
                     };
-                    
+
                     if collecting_hint {
                         hint_content.push(Content::ListItem(list_item));
                     } else {
@@ -464,7 +475,7 @@ pub fn parse_markdown(markdown: &str) -> Vec<Content> {
                         language: code_language.clone(),
                         code: code_content.clone(),
                     };
-                    
+
                     if collecting_hint {
                         hint_content.push(Content::CodeBlock(code_block));
                     } else {
@@ -547,16 +558,16 @@ impl LessonBoxState {
         state.rebuild_cache(80); // Default width
         state
     }
-    
+
     /// Rebuild the cached lines from content
     fn rebuild_cache(&mut self, width: u16) {
         self.cached_lines.clear();
         let mut hint_index = 0;
         let mut last_was_list_item = false;
-        
+
         for (content_idx, content_block) in self.content.iter().enumerate() {
             let is_list_item = matches!(content_block, Content::ListItem(_));
-            
+
             // Add empty line before content blocks (except first and between consecutive list items)
             if content_idx > 0 && !(last_was_list_item && is_list_item) {
                 self.cached_lines.push(CachedLine {
@@ -565,7 +576,7 @@ impl LessonBoxState {
                     is_hint_title: false,
                 });
             }
-            
+
             match content_block {
                 Content::Hint(hint) => {
                     let lines = hint.render(width);
@@ -589,18 +600,18 @@ impl LessonBoxState {
                     }
                 }
             }
-            
+
             last_was_list_item = is_list_item;
         }
-        
+
         self.total_lines = self.cached_lines.len();
-        
+
         // Ensure highlighted line is within bounds
         if self.highlighted_line >= self.total_lines {
             self.highlighted_line = self.total_lines.saturating_sub(1);
         }
     }
-    
+
     /// Move highlight down
     pub fn highlight_down(&mut self) {
         if self.highlighted_line < self.total_lines.saturating_sub(1) {
@@ -608,7 +619,7 @@ impl LessonBoxState {
             self.ensure_highlighted_visible();
         }
     }
-    
+
     /// Move highlight up
     pub fn highlight_up(&mut self) {
         if self.highlighted_line > 0 {
@@ -616,33 +627,37 @@ impl LessonBoxState {
             self.ensure_highlighted_visible();
         }
     }
-    
+
     /// Ensure the highlighted line is visible in the current view
     fn ensure_highlighted_visible(&mut self) {
         if self.window_lines == 0 {
             return;
         }
-        
+
         let scroll_offset = match self.scroll {
             Scroll::Top => 0,
-            Scroll::MaybeTop(offset) | Scroll::Offset(offset) | Scroll::MaybeBottom(offset) => offset,
+            Scroll::MaybeTop(offset) | Scroll::Offset(offset) | Scroll::MaybeBottom(offset) => {
+                offset
+            }
             Scroll::Bottom => self.total_lines.saturating_sub(self.window_lines),
         };
-        
+
         let view_start = scroll_offset;
         let view_end = scroll_offset + self.window_lines;
-        
+
         // If highlighted line is above view, scroll up
         if self.highlighted_line < view_start {
             self.scroll = Scroll::Offset(self.highlighted_line);
         }
         // If highlighted line is below view, scroll down
         else if self.highlighted_line >= view_end {
-            let new_offset = self.highlighted_line.saturating_sub(self.window_lines.saturating_sub(1));
+            let new_offset = self
+                .highlighted_line
+                .saturating_sub(self.window_lines.saturating_sub(1));
             self.scroll = Scroll::Offset(new_offset);
         }
     }
-    
+
     /// Check if the highlighted line is a collapsed hint title
     pub fn is_highlighted_hint(&self) -> Option<usize> {
         if self.highlighted_line < self.cached_lines.len() {
@@ -654,7 +669,7 @@ impl LessonBoxState {
         }
         None
     }
-    
+
     /// Toggle hint at highlighted line if it's a hint title
     pub fn toggle_highlighted_hint(&mut self, width: u16) -> bool {
         if let Some(hint_idx) = self.is_highlighted_hint() {
@@ -664,7 +679,7 @@ impl LessonBoxState {
             false
         }
     }
-    
+
     /// Toggle the hint at the specified index
     pub fn toggle_hint(&mut self, hint_index: usize, width: u16) {
         let mut content_hint_index = 0;
@@ -679,28 +694,29 @@ impl LessonBoxState {
             }
         }
     }
-    
+
     /// Scroll methods similar to ScrollText
     pub fn scroll_top(&mut self) {
         self.scroll = Scroll::Top;
     }
-    
+
     pub fn scroll_bottom(&mut self) {
         self.scroll = Scroll::Bottom;
     }
-    
+
     pub fn scroll_up(&mut self) {
         match self.scroll {
             Scroll::Offset(offset) => {
                 self.scroll = Scroll::MaybeTop(offset.saturating_sub(1));
             }
             Scroll::Bottom => {
-                self.scroll = Scroll::MaybeTop(self.total_lines.saturating_sub(self.window_lines + 1));
+                self.scroll =
+                    Scroll::MaybeTop(self.total_lines.saturating_sub(self.window_lines + 1));
             }
             _ => {}
         }
     }
-    
+
     pub fn scroll_down(&mut self) {
         match self.scroll {
             Scroll::Top => {
@@ -712,19 +728,19 @@ impl LessonBoxState {
             _ => {}
         }
     }
-    
+
     pub fn get_scroll(&self) -> &Scroll {
         &self.scroll
     }
-    
+
     pub fn get_lines(&self) -> usize {
         self.total_lines
     }
-    
+
     pub fn get_window_lines(&self) -> usize {
         self.window_lines
     }
-    
+
     pub fn get_highlighted_line(&self) -> usize {
         self.highlighted_line
     }
@@ -744,13 +760,13 @@ impl<'a> LessonBox<'a> {
     pub fn new() -> Self {
         Self::default()
     }
-    
+
     /// Add a block
     pub fn block(mut self, block: Block<'a>) -> Self {
         self.block = Some(block);
         self
     }
-    
+
     /// Set the style
     pub fn style(mut self, style: Style) -> Self {
         self.style = style;
@@ -819,7 +835,8 @@ impl StatefulWidget for LessonBox<'_> {
         };
 
         // Render lines with highlighting
-        let items: Vec<Line> = state.cached_lines
+        let items: Vec<Line> = state
+            .cached_lines
             .iter()
             .enumerate()
             .skip(start_line)
@@ -827,11 +844,11 @@ impl StatefulWidget for LessonBox<'_> {
             .map(|(line_idx, cached_line)| {
                 let is_highlighted = line_idx == state.highlighted_line;
                 let is_hint_title = cached_line.is_hint_title;
-                
+
                 if is_highlighted {
                     // Create a full-width highlighted line
                     let mut highlighted_line = cached_line.line.clone();
-                    
+
                     if is_hint_title {
                         // Highlighted hint title: black text on white background
                         for span in &mut highlighted_line.spans {
@@ -843,27 +860,29 @@ impl StatefulWidget for LessonBox<'_> {
                             span.style = span.style.bg(Color::DarkGray);
                         }
                     }
-                    
+
                     // Calculate remaining width to fill the entire line
-                    let current_width: usize = highlighted_line.spans.iter()
+                    let current_width: usize = highlighted_line
+                        .spans
+                        .iter()
                         .map(|span| span.content.chars().count())
                         .sum();
-                    
+
                     let remaining_width = content_width.saturating_sub(current_width as u16);
-                    
+
                     if remaining_width > 0 {
                         let fill_style = if is_hint_title {
                             Style::default().fg(Color::Black).bg(Color::White)
                         } else {
                             Style::default().bg(Color::DarkGray)
                         };
-                        
+
                         highlighted_line.spans.push(Span::styled(
                             " ".repeat(remaining_width as usize),
                             fill_style,
                         ));
                     }
-                    
+
                     highlighted_line
                 } else {
                     cached_line.line.clone()
@@ -924,7 +943,10 @@ mod tests {
         };
         let lines = paragraph.render(80);
         assert_eq!(lines.len(), 1);
-        assert_eq!(lines[0].spans[0].content, "This is a test paragraph with some content.");
+        assert_eq!(
+            lines[0].spans[0].content,
+            "This is a test paragraph with some content."
+        );
     }
 
     #[test]
@@ -946,9 +968,11 @@ mod tests {
         };
         let lines = code_block.render(80);
         assert_eq!(lines.len(), 3);
-        
+
         // With syntax highlighting, the line is split into multiple spans
-        let first_line_text: String = lines[0].spans.iter()
+        let first_line_text: String = lines[0]
+            .spans
+            .iter()
             .map(|span| span.content.as_ref())
             .collect::<Vec<&str>>()
             .join("");
@@ -1013,7 +1037,7 @@ fn main() {
 "#;
         let content = parse_markdown(markdown);
         assert_eq!(content.len(), 3);
-        
+
         // Check main heading
         if let Content::Heading(h) = &content[0] {
             assert_eq!(h.text, "Main Heading");
@@ -1021,14 +1045,14 @@ fn main() {
         } else {
             panic!("Expected heading");
         }
-        
+
         // Check paragraph
         if let Content::Paragraph(p) = &content[1] {
             assert_eq!(p.text, "This is a paragraph.");
         } else {
             panic!("Expected paragraph");
         }
-        
+
         // Check hint
         if let Content::Hint(hint) = &content[2] {
             assert_eq!(hint.title, "Getting Started");
@@ -1044,10 +1068,10 @@ fn main() {
         let markdown = r#"- First item
 - Second item
 - Third item"#;
-        
+
         let content = parse_markdown(markdown);
         assert_eq!(content.len(), 3);
-        
+
         for (i, item) in content.iter().enumerate() {
             if let Content::ListItem(list_item) = item {
                 match i {
@@ -1064,30 +1088,41 @@ fn main() {
 
     #[test]
     fn test_parse_real_lesson_file() {
-        let lesson_content = include_str!("../../../../examples/example-workshop/en/rs/01-hello-world/lesson.md");
+        let lesson_content =
+            include_str!("../../../../examples/example-workshop/en/rs/01-hello-world/lesson.md");
         let content = parse_markdown(lesson_content);
-        
+
         // Should have multiple content blocks
         assert!(content.len() > 5);
-        
+
         // Count hints (should be 3: Getting Started, Printing to the Console, Complete Solution)
-        let hint_count = content.iter().filter(|c| matches!(c, Content::Hint(_))).count();
+        let hint_count = content
+            .iter()
+            .filter(|c| matches!(c, Content::Hint(_)))
+            .count();
         assert_eq!(hint_count, 3);
-        
+
         // Check that first item is the main heading
         if let Content::Heading(h) = &content[0] {
             assert!(h.text.contains("Welcome") || h.text.contains("Introduction"));
         }
-        
+
         // Verify hint titles
-        let hints: Vec<&Hint> = content.iter()
-            .filter_map(|c| if let Content::Hint(h) = c { Some(h) } else { None })
+        let hints: Vec<&Hint> = content
+            .iter()
+            .filter_map(|c| {
+                if let Content::Hint(h) = c {
+                    Some(h)
+                } else {
+                    None
+                }
+            })
             .collect();
-        
+
         assert_eq!(hints[0].title, "Getting Started");
         assert_eq!(hints[1].title, "Printing to the Console");
         assert_eq!(hints[2].title, "Complete Solution");
-        
+
         // Each hint should have content
         for hint in hints {
             assert!(!hint.content.is_empty());
@@ -1102,14 +1137,14 @@ fn main() {
         };
         let lines = code_block.render(80);
         assert_eq!(lines.len(), 3);
-        
+
         // Should have multiple spans with different colors for syntax highlighting
         assert!(lines[0].spans.len() > 1); // "fn", " ", "main", "(", ")", " ", "{"
-        
+
         // Test that we get some styling (not all default)
-        let has_colored_spans = lines.iter().any(|line| {
-            line.spans.iter().any(|span| span.style.fg.is_some())
-        });
+        let has_colored_spans = lines
+            .iter()
+            .any(|line| line.spans.iter().any(|span| span.style.fg.is_some()));
         assert!(has_colored_spans);
     }
 
@@ -1132,11 +1167,11 @@ fn main() {
         };
         let lines = code_block.render(80);
         assert_eq!(lines.len(), 2);
-        
+
         // Should have syntax highlighting
-        let has_colored_spans = lines.iter().any(|line| {
-            line.spans.iter().any(|span| span.style.fg.is_some())
-        });
+        let has_colored_spans = lines
+            .iter()
+            .any(|line| line.spans.iter().any(|span| span.style.fg.is_some()));
         assert!(has_colored_spans);
     }
 
@@ -1151,19 +1186,23 @@ This is a paragraph.
 This is hint content.
 "#;
         let state = LessonBoxState::from_markdown(markdown);
-        
+
         // Should have content and cached lines
         assert_eq!(state.content.len(), 3); // heading, paragraph, hint
         assert!(state.cached_lines.len() > 0);
-        
+
         // Should have one hint
-        let hint_count = state.cached_lines.iter()
+        let hint_count = state
+            .cached_lines
+            .iter()
             .filter(|line| line.hint_index.is_some())
             .count();
         assert!(hint_count > 0);
-        
+
         // Should have one hint title line
-        let hint_title_count = state.cached_lines.iter()
+        let hint_title_count = state
+            .cached_lines
+            .iter()
             .filter(|line| line.is_hint_title)
             .count();
         assert_eq!(hint_title_count, 1);
@@ -1177,12 +1216,12 @@ This is hint content.
 "#;
         let mut state = LessonBoxState::from_markdown(markdown);
         let initial_lines = state.cached_lines.len();
-        
+
         // Toggle hint (expand)
         state.toggle_hint(0, 80);
         let expanded_lines = state.cached_lines.len();
         assert!(expanded_lines > initial_lines);
-        
+
         // Toggle hint (collapse)
         state.toggle_hint(0, 80);
         let collapsed_lines = state.cached_lines.len();
@@ -1192,11 +1231,11 @@ This is hint content.
     #[test]
     fn test_lesson_box_scrolling() {
         let mut state = LessonBoxState::from_markdown("# Test\n\nContent");
-        
+
         // Test scroll methods
         state.scroll_down();
         assert!(matches!(state.scroll, Scroll::MaybeBottom(_)));
-        
+
         state.scroll_up();
         // Should normalize back to Top since there's not much content
         state.scroll_top();
@@ -1212,18 +1251,18 @@ This is hint content.
 Hint content.
 "#;
         let mut state = LessonBoxState::from_markdown(markdown);
-        
+
         // Should start with highlight at line 0
         assert_eq!(state.get_highlighted_line(), 0);
-        
+
         // Move highlight down
         state.highlight_down();
         assert_eq!(state.get_highlighted_line(), 1);
-        
+
         // Move highlight up
         state.highlight_up();
         assert_eq!(state.get_highlighted_line(), 0);
-        
+
         // Can't go below 0
         state.highlight_up();
         assert_eq!(state.get_highlighted_line(), 0);
@@ -1236,19 +1275,19 @@ Hint content.
 Hint content.
 "#;
         let mut state = LessonBoxState::from_markdown(markdown);
-        
+
         // First line should be hint title
         assert!(state.is_highlighted_hint().is_some());
-        
+
         // Move to next line - could be hint content (expanded) or empty line
         state.highlight_down();
         // We don't know the exact structure, so just check it's not a hint title
         let _is_hint_after_move = state.is_highlighted_hint().is_some();
-        
+
         // Move back to title
         state.highlight_up();
         assert!(state.is_highlighted_hint().is_some());
-        
+
         // Test that we can toggle the hint
         let initial_lines = state.cached_lines.len();
         let toggle_success = state.toggle_highlighted_hint(80);
@@ -1268,28 +1307,34 @@ Hint content.
 Next paragraph.
 "#;
         let state = LessonBoxState::from_markdown(markdown);
-        
+
         // Should have content with proper spacing
         assert!(state.cached_lines.len() > 5);
-        
+
         // Find the lines and check spacing
-        let line_contents: Vec<String> = state.cached_lines.iter()
-            .map(|line| line.line.spans.iter()
-                .map(|span| span.content.as_ref())
-                .collect::<Vec<&str>>()
-                .join(""))
+        let line_contents: Vec<String> = state
+            .cached_lines
+            .iter()
+            .map(|line| {
+                line.line
+                    .spans
+                    .iter()
+                    .map(|span| span.content.as_ref())
+                    .collect::<Vec<&str>>()
+                    .join("")
+            })
             .collect();
-            
+
         // Should have consecutive list items without blank lines between them
         let has_consecutive_list_items = line_contents.windows(2).any(|window| {
             window[0].contains("• First item") && window[1].contains("• Second item")
         });
-        
+
         // But should have blank line before "Next paragraph"
-        let has_spacing_after_list = line_contents.windows(2).any(|window| {
-            window[0].contains("• Third item") && window[1].is_empty()
-        });
-        
+        let has_spacing_after_list = line_contents
+            .windows(2)
+            .any(|window| window[0].contains("• Third item") && window[1].is_empty());
+
         assert!(has_consecutive_list_items || has_spacing_after_list); // At least one should be true
     }
 
@@ -1302,52 +1347,59 @@ First paragraph in hint.
 Second paragraph in hint.
 "#;
         let mut state = LessonBoxState::from_markdown(markdown);
-        
+
         // Expand the hint
         if let Some(hint_idx) = state.is_highlighted_hint() {
             state.toggle_hint(hint_idx, 80);
         }
-        
+
         // Should have blank lines between content blocks within the hint
-        let line_contents: Vec<String> = state.cached_lines.iter()
-            .map(|line| line.line.spans.iter()
-                .map(|span| span.content.as_ref())
-                .collect::<Vec<&str>>()
-                .join(""))
+        let line_contents: Vec<String> = state
+            .cached_lines
+            .iter()
+            .map(|line| {
+                line.line
+                    .spans
+                    .iter()
+                    .map(|span| span.content.as_ref())
+                    .collect::<Vec<&str>>()
+                    .join("")
+            })
             .collect();
-            
+
         // Should have blank line after hint title
-        let has_blank_after_title = line_contents.windows(2).any(|window| {
-            window[0].contains("▼ Test") && window[1].is_empty()
-        });
-        
+        let has_blank_after_title = line_contents
+            .windows(2)
+            .any(|window| window[0].contains("▼ Test") && window[1].is_empty());
+
         // Should have blank line between paragraphs in the expanded hint
         let has_blank_between_hint_content = line_contents.windows(3).any(|window| {
-            window[0].contains("First paragraph") && 
-            window[1].is_empty() && 
-            window[2].contains("Second paragraph")
+            window[0].contains("First paragraph")
+                && window[1].is_empty()
+                && window[2].contains("Second paragraph")
         });
-        
+
         assert!(has_blank_after_title || has_blank_between_hint_content);
     }
 
     #[test]
     fn test_lesson_box_integration_with_real_lesson() {
-        let lesson_content = include_str!("../../../../examples/example-workshop/en/rs/01-hello-world/lesson.md");
+        let lesson_content =
+            include_str!("../../../../examples/example-workshop/en/rs/01-hello-world/lesson.md");
         let mut state = LessonBoxState::from_markdown(lesson_content);
-        
+
         // Should have multiple content blocks and hints
         assert!(state.content.len() > 5);
         assert!(state.cached_lines.len() > 10);
-        
+
         // Test scrolling
         state.window_lines = 20;
         state.scroll_down();
         state.scroll_down();
-        
+
         // Test highlighting and hint toggling
         let initial_lines = state.cached_lines.len();
-        
+
         // Move highlight to find a hint
         for _ in 0..20 {
             if state.is_highlighted_hint().is_some() {
@@ -1355,7 +1407,7 @@ Second paragraph in hint.
             }
             state.highlight_down();
         }
-        
+
         // If we found a hint, test toggling
         if state.is_highlighted_hint().is_some() {
             let success = state.toggle_highlighted_hint(80);

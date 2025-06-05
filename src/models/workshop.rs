@@ -80,6 +80,11 @@ impl WorkshopData {
         &self.path
     }
 
+    /// returns the default languages for this workshop
+    pub fn get_defaults(&self) -> &Defaults {
+        &self.defaults
+    }
+
     /// returns the set of spoken languages the workshop has been translated to
     pub fn get_all_spoken_languages(&self) -> Vec<spoken::Code> {
         self.languages.keys().cloned().collect::<Vec<_>>()
@@ -431,6 +436,72 @@ impl WorkshopData {
             lessons_data.insert(lesson_data.get_name().to_string(), lesson_data);
         }
         Ok(lessons_data)
+    }
+
+    /// Calculate the path to the deps.py script using status languages or defaults
+    pub fn get_deps_script_path(
+        &self,
+        status_spoken: Option<spoken::Code>,
+        status_programming: Option<programming::Code>,
+    ) -> Result<PathBuf, Error> {
+        // Use status languages or fall back to defaults
+        let spoken = status_spoken.unwrap_or(self.defaults.spoken_language);
+        let programming = status_programming.unwrap_or(self.defaults.programming_language);
+
+        // Construct path: {workshop_data_dir}/{workshop_name}/{spoken}/{programming}/deps.py
+        let data_dir =
+            crate::fs::workshops::data_dir().ok_or_else(|| ModelError::WorkshopDataDirNotFound)?;
+
+        Ok(data_dir
+            .join(&self.name)
+            .join(spoken.to_string())
+            .join(programming.to_string())
+            .join("deps.py"))
+    }
+
+    /// Calculate the path to the check.py script for a specific lesson using status languages or defaults
+    pub fn get_check_script_path(
+        &self,
+        lesson_name: &str,
+        status_spoken: Option<spoken::Code>,
+        status_programming: Option<programming::Code>,
+    ) -> Result<PathBuf, Error> {
+        // Use status languages or fall back to defaults
+        let spoken = status_spoken.unwrap_or(self.defaults.spoken_language);
+        let programming = status_programming.unwrap_or(self.defaults.programming_language);
+
+        // Construct path: {workshop_data_dir}/{workshop_name}/{spoken}/{programming}/{lesson}/check.py
+        let data_dir =
+            crate::fs::workshops::data_dir().ok_or_else(|| ModelError::WorkshopDataDirNotFound)?;
+
+        Ok(data_dir
+            .join(&self.name)
+            .join(spoken.to_string())
+            .join(programming.to_string())
+            .join(lesson_name)
+            .join("check.py"))
+    }
+
+    /// Calculate the directory path for a specific lesson using status languages or defaults
+    pub fn get_lesson_dir_path(
+        &self,
+        lesson_name: &str,
+        status_spoken: Option<spoken::Code>,
+        status_programming: Option<programming::Code>,
+    ) -> Result<PathBuf, Error> {
+        // Use status languages or fall back to defaults
+        let spoken = status_spoken.unwrap_or(self.defaults.spoken_language);
+        let programming = status_programming.unwrap_or(self.defaults.programming_language);
+
+        // Construct path: {workshop_data_dir}/{workshop_name}/{spoken}/{programming}/{lesson}/
+        let data_dir =
+            crate::fs::workshops::data_dir().ok_or_else(|| ModelError::WorkshopDataDirNotFound)?;
+
+        Ok(data_dir
+            .join(&self.name)
+            .join(spoken.to_string())
+            .join(programming.to_string())
+            .join(lesson_name))
     }
 }
 

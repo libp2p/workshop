@@ -1,5 +1,6 @@
 pub mod app;
 pub use app::App;
+pub mod command;
 pub mod config;
 pub use config::Config;
 pub mod error;
