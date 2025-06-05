@@ -70,8 +70,7 @@ impl License<'_> {
             .border_style(Style::default().fg(Color::White));
 
         self.st.block(block);
-        self.st
-            .style(Style::default().fg(Color::White).bg(Color::Black));
+        self.st.style(Style::default().fg(Color::White));
 
         // render the scroll text
         StatefulWidget::render(&mut self.st, area, buf, &mut self.text);

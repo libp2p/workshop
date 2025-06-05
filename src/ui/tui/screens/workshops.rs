@@ -389,18 +389,15 @@ impl Workshops<'_> {
         };
 
         let title = Line::from(vec![
-            Span::styled("─", Style::default().fg(Color::DarkGray).bg(Color::Black)),
-            Span::styled(
-                "/ Select a Workshop /",
-                Style::default().fg(fg).bg(Color::Black),
-            ),
+            Span::styled("─", Style::default().fg(Color::DarkGray)),
+            Span::styled("/ Select a Workshop /", Style::default().fg(fg)),
         ]);
         let titles = self.titles.clone().block(
             Block::default()
                 .title(title)
-                .title_style(Style::default().fg(fg).bg(Color::Black))
+                .title_style(Style::default().fg(fg))
                 .padding(Padding::uniform(1))
-                .style(Style::default().fg(Color::DarkGray).bg(Color::Black))
+                .style(Style::default().fg(Color::DarkGray))
                 .borders(Borders::LEFT | Borders::TOP | Borders::RIGHT)
                 .border_set(TOP_LEFT_BORDER),
         );
@@ -444,22 +441,19 @@ impl Workshops<'_> {
             };
 
             let title = Line::from(vec![
-                Span::styled("─", Style::default().fg(Color::DarkGray).bg(Color::Black)),
-                Span::styled(
-                    format!("/ {} /", view),
-                    Style::default().fg(fg).bg(Color::Black),
-                ),
+                Span::styled("─", Style::default().fg(Color::DarkGray)),
+                Span::styled(format!("/ {} /", view), Style::default().fg(fg)),
             ]);
             let block = Block::default()
                 .title(title)
-                .title_style(Style::default().fg(fg).bg(Color::Black))
+                .title_style(Style::default().fg(fg))
                 .padding(Padding::top(1))
-                .style(Style::default().fg(Color::DarkGray).bg(Color::Black))
+                .style(Style::default().fg(Color::DarkGray))
                 .borders(Borders::LEFT | Borders::TOP | Borders::RIGHT)
                 .border_set(border_set);
 
             b.block(block);
-            b.style(Style::default().fg(Color::White).bg(Color::Black));
+            b.style(Style::default().fg(Color::White));
 
             // render the scroll text
             Widget::render(b, area, buf);
@@ -479,18 +473,18 @@ impl Workshops<'_> {
     // render the keyboard shortcuts
     fn render_keys(&mut self, area: Rect, buf: &mut Buffer) {
         let title = Line::from(vec![
-            Span::styled("─", Style::default().fg(Color::DarkGray).bg(Color::Black)),
+            Span::styled("─", Style::default().fg(Color::DarkGray)),
             Span::styled(
                 "/ j,k scroll / ⇥ focus / ↵ select / w homepage / l license / s spoken / p programming / q quit /",
-                Style::default().fg(Color::White).bg(Color::Black),
+                Style::default().fg(Color::White),
             ),
         ]);
         let block = Block::default()
             .title(title)
-            .title_style(Style::default().bg(Color::Black).fg(Color::White))
+            .title_style(Style::default().fg(Color::White))
             .title_position(Position::Bottom)
             .title_alignment(Alignment::Left)
-            .style(Style::default().fg(Color::DarkGray).bg(Color::Black))
+            .style(Style::default().fg(Color::DarkGray))
             .borders(Borders::LEFT | Borders::BOTTOM)
             .border_set(STATUS_BORDER)
             .padding(Padding::horizontal(1));
@@ -513,17 +507,17 @@ impl Workshops<'_> {
         let title = Line::from(vec![
             Span::styled(
                 format!("/ {spoken} / {programming} /"),
-                Style::default().fg(Color::White).bg(Color::Black),
+                Style::default().fg(Color::White),
             ),
-            Span::styled("─", Style::default().fg(Color::DarkGray).bg(Color::Black)),
+            Span::styled("─", Style::default().fg(Color::DarkGray)),
         ]);
 
         let block = Block::default()
             .title(title)
-            .title_style(Style::default().bg(Color::Black).fg(Color::White))
+            .title_style(Style::default().fg(Color::White))
             .title_position(Position::Bottom)
             .title_alignment(Alignment::Right)
-            .style(Style::default().fg(Color::DarkGray).bg(Color::Black))
+            .style(Style::default().fg(Color::DarkGray))
             .borders(Borders::RIGHT | Borders::BOTTOM)
             .border_set(STATUS_BORDER)
             .padding(Padding::horizontal(1));

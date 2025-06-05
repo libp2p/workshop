@@ -85,10 +85,10 @@ impl Programming<'_> {
         };
 
         let title = Line::from(vec![
-            Span::styled("─", Style::default().fg(Color::DarkGray).bg(Color::Black)),
+            Span::styled("─", Style::default().fg(Color::DarkGray)),
             Span::styled(
                 "/ Programming Languages /",
-                Style::default().fg(Color::White).bg(Color::Black),
+                Style::default().fg(Color::White),
             ),
         ]);
         self.list_state.select(select_index);
@@ -96,7 +96,7 @@ impl Programming<'_> {
             .block(
                 Block::default()
                     .title(title)
-                    .title_style(Style::default().bg(Color::Black).fg(Color::White))
+                    .title_style(Style::default().fg(Color::White))
                     .padding(Padding::uniform(1))
                     .style(Style::default().fg(Color::DarkGray))
                     .borders(Borders::LEFT | Borders::RIGHT | Borders::TOP)
@@ -143,18 +143,18 @@ impl Programming<'_> {
     // render the status bar at the bottom
     fn render_status(&mut self, area: Rect, buf: &mut Buffer) {
         let line = Line::from(vec![
-            Span::styled("─", Style::default().fg(Color::DarkGray).bg(Color::Black)),
+            Span::styled("─", Style::default().fg(Color::DarkGray)),
             Span::styled(
                 "/ j,k scroll / ↵ select /",
-                Style::default().fg(Color::White).bg(Color::Black),
+                Style::default().fg(Color::White),
             ),
         ]);
         let block = Block::default()
             .title(line)
-            .title_style(Style::default().bg(Color::Black).fg(Color::White))
+            .title_style(Style::default().fg(Color::White))
             .title_position(Position::Bottom)
             .title_alignment(Alignment::Left)
-            .style(Style::default().fg(Color::DarkGray).bg(Color::Black))
+            .style(Style::default().fg(Color::DarkGray))
             .borders(Borders::LEFT | Borders::BOTTOM | Borders::RIGHT)
             .border_set(STATUS_BORDER)
             .padding(Padding::horizontal(1));

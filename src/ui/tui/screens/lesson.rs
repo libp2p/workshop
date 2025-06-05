@@ -78,23 +78,23 @@ impl Lesson {
     /// render the lesson
     fn render_lesson(&mut self, area: Rect, buf: &mut Buffer) {
         let title = Line::from(vec![
-            Span::styled("─", Style::default().fg(Color::DarkGray).bg(Color::Black)),
+            Span::styled("─", Style::default().fg(Color::DarkGray)),
             Span::styled(
                 format!("/ {} /", self.lesson_title),
-                Style::default().fg(Color::White).bg(Color::Black),
+                Style::default().fg(Color::White),
             ),
         ]);
         let block = Block::default()
             .title(title)
-            .title_style(Style::default().fg(Color::White).bg(Color::Black))
+            .title_style(Style::default().fg(Color::White))
             .padding(Padding::uniform(1))
-            .style(Style::default().fg(Color::DarkGray).bg(Color::Black))
+            .style(Style::default().fg(Color::DarkGray))
             .borders(Borders::LEFT | Borders::TOP | Borders::RIGHT)
             .border_set(TOP_BORDER);
 
         let lesson_widget = LessonBox::new()
             .block(block)
-            .style(Style::default().fg(Color::White).bg(Color::Black));
+            .style(Style::default().fg(Color::White));
 
         // render the lesson box
         StatefulWidget::render(lesson_widget, area, buf, &mut self.lesson_state);
@@ -113,18 +113,18 @@ impl Lesson {
     // render the keyboard shortcuts
     fn render_keys(&mut self, area: Rect, buf: &mut Buffer) {
         let title = Line::from(vec![
-            Span::styled("─", Style::default().fg(Color::DarkGray).bg(Color::Black)),
+            Span::styled("─", Style::default().fg(Color::DarkGray)),
             Span::styled(
                 "/ j,k scroll / ⇥ next hint / ↵ expand hint / c check / b back / q quit /",
-                Style::default().fg(Color::White).bg(Color::Black),
+                Style::default().fg(Color::White),
             ),
         ]);
         let block = Block::default()
             .title(title)
-            .title_style(Style::default().bg(Color::Black).fg(Color::White))
+            .title_style(Style::default().fg(Color::White))
             .title_position(Position::Bottom)
             .title_alignment(Alignment::Left)
-            .style(Style::default().fg(Color::DarkGray).bg(Color::Black))
+            .style(Style::default().fg(Color::DarkGray))
             .borders(Borders::LEFT | Borders::BOTTOM)
             .border_set(STATUS_BORDER)
             .padding(Padding::horizontal(1));
@@ -147,17 +147,17 @@ impl Lesson {
         let title = Line::from(vec![
             Span::styled(
                 format!("/ {} / {spoken} / {programming} /", self.workshop_title),
-                Style::default().fg(Color::White).bg(Color::Black),
+                Style::default().fg(Color::White),
             ),
-            Span::styled("─", Style::default().fg(Color::DarkGray).bg(Color::Black)),
+            Span::styled("─", Style::default().fg(Color::DarkGray)),
         ]);
 
         let block = Block::default()
             .title(title)
-            .title_style(Style::default().bg(Color::Black).fg(Color::White))
+            .title_style(Style::default().fg(Color::White))
             .title_position(Position::Bottom)
             .title_alignment(Alignment::Right)
-            .style(Style::default().fg(Color::DarkGray).bg(Color::Black))
+            .style(Style::default().fg(Color::DarkGray))
             .borders(Borders::RIGHT | Borders::BOTTOM)
             .border_set(STATUS_BORDER)
             .padding(Padding::horizontal(1));

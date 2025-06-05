@@ -241,18 +241,15 @@ impl Lessons<'_> {
         };
 
         let title = Line::from(vec![
-            Span::styled("─", Style::default().fg(Color::DarkGray).bg(Color::Black)),
-            Span::styled(
-                "/ Select a Lesson /",
-                Style::default().fg(fg).bg(Color::Black),
-            ),
+            Span::styled("─", Style::default().fg(Color::DarkGray)),
+            Span::styled("/ Select a Lesson /", Style::default().fg(fg)),
         ]);
         let titles = self.titles.clone().block(
             Block::default()
                 .title(title)
-                .title_style(Style::default().fg(fg).bg(Color::Black))
+                .title_style(Style::default().fg(fg))
                 .padding(Padding::uniform(1))
-                .style(Style::default().fg(Color::DarkGray).bg(Color::Black))
+                .style(Style::default().fg(Color::DarkGray))
                 .borders(Borders::LEFT | Borders::TOP | Borders::RIGHT)
                 .border_set(TOP_LEFT_BORDER),
         );
@@ -274,20 +271,19 @@ impl Lessons<'_> {
         };
 
         let title = Line::from(vec![
-            Span::styled("─", Style::default().fg(Color::DarkGray).bg(Color::Black)),
-            Span::styled("/ Description /", Style::default().fg(fg).bg(Color::Black)),
+            Span::styled("─", Style::default().fg(Color::DarkGray)),
+            Span::styled("/ Description /", Style::default().fg(fg)),
         ]);
         let block = Block::default()
             .title(title)
-            .title_style(Style::default().fg(fg).bg(Color::Black))
+            .title_style(Style::default().fg(fg))
             .padding(Padding::top(1))
-            .style(Style::default().fg(Color::DarkGray).bg(Color::Black))
+            .style(Style::default().fg(Color::DarkGray))
             .borders(Borders::LEFT | Borders::TOP | Borders::RIGHT)
             .border_set(TOP_BOX_BORDER);
 
         self.st.block(block);
-        self.st
-            .style(Style::default().fg(Color::White).bg(Color::Black));
+        self.st.style(Style::default().fg(Color::White));
 
         // render the scroll text
         StatefulWidget::render(&mut self.st, area, buf, &mut description);
@@ -306,18 +302,18 @@ impl Lessons<'_> {
     // render the keyboard shortcuts
     fn render_keys(&mut self, area: Rect, buf: &mut Buffer) {
         let title = Line::from(vec![
-            Span::styled("─", Style::default().fg(Color::DarkGray).bg(Color::Black)),
+            Span::styled("─", Style::default().fg(Color::DarkGray)),
             Span::styled(
                 "/ j,k scroll / ⇥ focus / ↵ select / b back / q quit /",
-                Style::default().fg(Color::White).bg(Color::Black),
+                Style::default().fg(Color::White),
             ),
         ]);
         let block = Block::default()
             .title(title)
-            .title_style(Style::default().bg(Color::Black).fg(Color::White))
+            .title_style(Style::default().fg(Color::White))
             .title_position(Position::Bottom)
             .title_alignment(Alignment::Left)
-            .style(Style::default().fg(Color::DarkGray).bg(Color::Black))
+            .style(Style::default().fg(Color::DarkGray))
             .borders(Borders::LEFT | Borders::BOTTOM)
             .border_set(STATUS_BORDER)
             .padding(Padding::horizontal(1));

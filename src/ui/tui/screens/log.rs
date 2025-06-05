@@ -116,24 +116,20 @@ impl Log<'_> {
         Widget::render(Clear, area, buf);
 
         let title = Line::from(vec![
-            Span::styled("─", Style::default().fg(Color::DarkGray).bg(Color::Black)),
-            Span::styled(
-                "/ Log /",
-                Style::default().fg(Color::White).bg(Color::Black),
-            ),
+            Span::styled("─", Style::default().fg(Color::DarkGray)),
+            Span::styled("/ Log /", Style::default().fg(Color::White)),
         ]);
 
         let block = Block::default()
             .title(title)
-            .title_style(Style::default().bg(Color::Black).fg(Color::White))
+            .title_style(Style::default().fg(Color::White))
             .padding(Padding::horizontal(1))
             .style(Style::default().fg(Color::DarkGray))
             .borders(Borders::LEFT | Borders::RIGHT | Borders::TOP)
             .border_set(TOP_DIALOG_BORDER);
 
         self.st.block(block);
-        self.st
-            .style(Style::default().fg(Color::White).bg(Color::Black));
+        self.st.style(Style::default().fg(Color::White));
 
         // render the scroll text
         StatefulWidget::render(&mut self.st, area, buf, &mut self.text);
@@ -142,18 +138,18 @@ impl Log<'_> {
     // render the status bar at the bottom
     fn render_status(&mut self, area: Rect, buf: &mut Buffer) {
         let line = Line::from(vec![
-            Span::styled("─", Style::default().fg(Color::DarkGray).bg(Color::Black)),
+            Span::styled("─", Style::default().fg(Color::DarkGray)),
             Span::styled(
                 "/ j,k scroll / ⤒ top / ⤓ bottom / ` back / q quit /",
-                Style::default().fg(Color::White).bg(Color::Black),
+                Style::default().fg(Color::White),
             ),
         ]);
         let block = Block::default()
             .title(line)
-            .title_style(Style::default().bg(Color::Black).fg(Color::White))
+            .title_style(Style::default().fg(Color::White))
             .title_position(Position::Bottom)
             .title_alignment(Alignment::Left)
-            .style(Style::default().fg(Color::DarkGray).bg(Color::Black))
+            .style(Style::default().fg(Color::DarkGray))
             .borders(Borders::LEFT | Borders::BOTTOM | Borders::RIGHT)
             .border_set(STATUS_BORDER)
             .padding(Padding::horizontal(1));
