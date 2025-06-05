@@ -11,7 +11,7 @@ use std::{
     sync::Arc,
 };
 use tokio::sync::RwLock;
-use tracing::info;
+use tracing::trace;
 
 /// Represents a workshop's metadata
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -143,36 +143,36 @@ impl WorkshopData {
         programming_language: Option<programming::Code>,
     ) -> bool {
         let name = self.get_name();
-        info!("(engine) WorkshopData::is_selected: {}", name);
+        trace!("(engine) WorkshopData::is_selected: {}", name);
         if let Some(spoken) = spoken_language {
-            info!("(engine) - spoken: {}", spoken.get_name_in_english());
+            trace!("(engine) - spoken: {}", spoken.get_name_in_english());
             if !self.get_all_spoken_languages().contains(&spoken) {
-                info!("(engine)   - not a supported spoken language");
+                trace!("(engine)   - not a supported spoken language");
                 return false;
             }
-            info!("(engine)   - a supported spoken language");
+            trace!("(engine)   - a supported spoken language");
             if let Some(programming) = programming_language {
-                info!("(engine) - programming: {}", programming.get_name());
+                trace!("(engine) - programming: {}", programming.get_name());
                 if !self
                     .get_programming_languages_for_spoken_language(spoken)
                     .contains(&programming)
                 {
-                    info!("(engine)   - not a supported programming language");
+                    trace!("(engine)   - not a supported programming language");
                     return false;
                 }
-                info!("(engine)   - a supported programming language");
+                trace!("(engine)   - a supported programming language");
             } else {
-                info!("(engine) - programming: Any");
+                trace!("(engine) - programming: Any");
             }
         } else {
-            info!("(engine) - spoken: Any");
+            trace!("(engine) - spoken: Any");
             if let Some(programming) = programming_language {
-                info!("(engine) - programming: {}", programming.get_name());
+                trace!("(engine) - programming: {}", programming.get_name());
                 if !self.get_all_programming_languages().contains(&programming) {
-                    info!("(engine)   - not a supported programming language");
+                    trace!("(engine)   - not a supported programming language");
                     return false;
                 }
-                info!("(engine)   - a supported programming language");
+                trace!("(engine)   - a supported programming language");
             }
         }
         true
@@ -183,7 +183,7 @@ impl WorkshopData {
         &self,
         spoken_language: Option<spoken::Code>,
     ) -> Result<String, Error> {
-        info!(
+        trace!(
             "(engine) WorkshopData::get_description({})",
             spoken_language.map_or("Any".to_string(), |s| s.get_name_in_english().to_string())
         );
@@ -206,7 +206,7 @@ impl WorkshopData {
             }
         };
 
-        info!(
+        trace!(
             "(engine) WorkshopData::get_description: {}",
             spoken_language
         );
@@ -232,7 +232,7 @@ impl WorkshopData {
         spoken_language: Option<spoken::Code>,
         programming_language: Option<programming::Code>,
     ) -> Result<String, Error> {
-        info!(
+        trace!(
             "(engine) WorkshopData::get_setup_instructions({}, {})",
             spoken_language.map_or("Any".to_string(), |s| s.get_name_in_english().to_string()),
             programming_language.map_or("Any".to_string(), |p| p.get_name().to_string())
@@ -289,9 +289,10 @@ impl WorkshopData {
                 }
             };
 
-            info!(
+            trace!(
                 "(engine) WorkshopData::get_setup_instructions: {} + {}",
-                spoken_language, programming_language
+                spoken_language,
+                programming_language
             );
 
             spoken.get(&programming_language).ok_or::<Error>(
@@ -319,7 +320,7 @@ impl WorkshopData {
         &self,
         spoken_language: Option<spoken::Code>,
     ) -> Result<Workshop, Error> {
-        info!(
+        trace!(
             "(engine) WorkshopData::get_metadata({})",
             spoken_language.map_or("Any".to_string(), |s| s.get_name_in_english().to_string())
         );
@@ -362,7 +363,7 @@ impl WorkshopData {
         spoken_language: Option<spoken::Code>,
         programming_language: Option<programming::Code>,
     ) -> Result<HashMap<String, LessonData>, Error> {
-        info!(
+        trace!(
             "(engine) WorkshopData::get_lessons_data({}, {})",
             spoken_language.map_or("Any".to_string(), |s| s.get_name_in_english().to_string()),
             programming_language.map_or("Any".to_string(), |p| p.get_name().to_string())
@@ -416,9 +417,10 @@ impl WorkshopData {
                 }
             };
 
-            info!(
+            trace!(
                 "(engine) WorkshopData::get_lessons_data: {} + {}",
-                spoken_language, programming_language
+                spoken_language,
+                programming_language
             );
 
             spoken.get(&programming_language).ok_or::<Error>(
@@ -431,7 +433,7 @@ impl WorkshopData {
 
         let mut lessons_data: HashMap<String, LessonData> = HashMap::new();
         for lesson in lessons.iter() {
-            info!("(engine) Loading lesson data: {:?}", lesson);
+            trace!("(engine) Loading lesson data: {:?}", lesson);
             let lesson_data = lesson.write().await.try_load().await.cloned()?;
             lessons_data.insert(lesson_data.get_name().to_string(), lesson_data);
         }
@@ -450,7 +452,7 @@ impl WorkshopData {
 
         // Construct path: {workshop_data_dir}/{workshop_name}/{spoken}/{programming}/deps.py
         let data_dir =
-            crate::fs::workshops::data_dir().ok_or_else(|| ModelError::WorkshopDataDirNotFound)?;
+            crate::fs::workshops::data_dir().ok_or(ModelError::WorkshopDataDirNotFound)?;
 
         Ok(data_dir
             .join(&self.name)
@@ -472,7 +474,7 @@ impl WorkshopData {
 
         // Construct path: {workshop_data_dir}/{workshop_name}/{spoken}/{programming}/{lesson}/check.py
         let data_dir =
-            crate::fs::workshops::data_dir().ok_or_else(|| ModelError::WorkshopDataDirNotFound)?;
+            crate::fs::workshops::data_dir().ok_or(ModelError::WorkshopDataDirNotFound)?;
 
         Ok(data_dir
             .join(&self.name)
@@ -495,7 +497,7 @@ impl WorkshopData {
 
         // Construct path: {workshop_data_dir}/{workshop_name}/{spoken}/{programming}/{lesson}/
         let data_dir =
-            crate::fs::workshops::data_dir().ok_or_else(|| ModelError::WorkshopDataDirNotFound)?;
+            crate::fs::workshops::data_dir().ok_or(ModelError::WorkshopDataDirNotFound)?;
 
         Ok(data_dir
             .join(&self.name)
@@ -534,7 +536,7 @@ impl Loader {
                     if let Ok(code) =
                         spoken::Code::try_from(e.file_name().to_string_lossy().as_ref())
                     {
-                        info!(
+                        trace!(
                             "(engine) Found setup description under {}: {}",
                             workshop_dir.display(),
                             code
@@ -575,7 +577,7 @@ impl Loader {
                         if let Ok(e) = entry {
                             let name = e.file_name().to_string_lossy().to_string();
                             if let Ok(code) = programming::Code::try_from(name.as_str()) {
-                                info!(
+                                trace!(
                                     "(engine) Found setup instructions under {}: {} + {}",
                                     workshop_dir.display(),
                                     spoken,
@@ -647,7 +649,7 @@ impl Loader {
         workshop_dir: &Path,
         spoken_languages: &Vec<spoken::Code>,
     ) -> Result<LessonsDataMap, Error> {
-        info!(
+        trace!(
             "(engine) WorkshopData::try_load_lessons_data: {}, {:?}",
             workshop_dir.display(),
             spoken_languages
@@ -680,7 +682,7 @@ impl Loader {
                                     .filter_map(|entry| {
                                         if let Ok(e) = entry {
                                             if e.path().is_dir() {
-                                                info!(
+                                                trace!(
                                                     "(engine) Found lesson data under {}: {} + {}: {}",
                                                     workshop_dir.display(),
                                                     spoken,

@@ -106,6 +106,12 @@ impl From<(Option<Screens>, tui::Event)> for Event {
     }
 }
 
+impl From<tui::Evt> for Event {
+    fn from(evt: tui::Evt) -> Self {
+        Event::Ui(evt.0, *evt.1)
+    }
+}
+
 /// The State trait
 #[async_trait::async_trait]
 pub trait Screen: Send + Sync {

@@ -1,5 +1,5 @@
 use std::path::{Path, PathBuf};
-use tracing::info;
+use tracing::trace;
 
 /// Trait that types must implement to be loadable
 #[async_trait::async_trait]
@@ -31,7 +31,7 @@ where
             LazyLoader::NotLoaded(path) => {
                 // Clone the path before borrowing self
                 let path_clone = path.clone();
-                info!(
+                trace!(
                     "(lazy loader) attempting to load from path: {}",
                     path_clone.display()
                 );
@@ -41,7 +41,7 @@ where
                 *self = LazyLoader::Loaded(loaded);
                 // Return a reference to the loaded data
                 if let LazyLoader::Loaded(data) = self {
-                    info!(
+                    trace!(
                         "(lazy loader) loaded data from path: {}",
                         path_clone.display()
                     );
@@ -51,7 +51,7 @@ where
                 }
             }
             LazyLoader::Loaded(data) => {
-                info!("(lazy loader) returning cached value from lazy loader");
+                trace!("(lazy loader) returning cached value from lazy loader");
                 // If already loaded, return a reference to the data
                 Ok(data)
             }

@@ -1,6 +1,11 @@
 use crate::{
     languages::spoken,
-    ui::tui::{self, screens, widgets::ScrollText, Screen},
+    ui::tui::{
+        self,
+        screens::{self, Screens},
+        widgets::ScrollText,
+        Screen,
+    },
     Error, Status,
 };
 use crossterm::event::{self, KeyCode};
@@ -109,7 +114,7 @@ impl License<'_> {
                 };
                 self.set_license(text, spoken).await?;
                 to_ui
-                    .send((None, tui::Event::Show(screens::Screens::License)).into())
+                    .send((None, tui::Event::Show(Screens::License)).into())
                     .await?;
             }
             _ => {
@@ -132,7 +137,7 @@ impl License<'_> {
                 KeyCode::PageDown => self.st.scroll_bottom(),
                 KeyCode::Char('b') | KeyCode::Esc => {
                     to_ui
-                        .send((Some(screens::Screens::Workshops), tui::Event::LoadWorkshops).into())
+                        .send((Some(Screens::Workshops), tui::Event::LoadWorkshops).into())
                         .await?;
                 }
                 KeyCode::Char('j') | KeyCode::Down => self.st.scroll_down(),

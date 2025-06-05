@@ -1,6 +1,6 @@
 use crate::{
     fs,
-    languages::{programming, spoken},
+    languages::{self, programming, spoken},
     models::{Lesson, LessonData},
     ui::tui::{self, screens, widgets::ScrollText, Screen},
     Error, Status,
@@ -19,7 +19,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 use tokio::sync::mpsc::Sender;
-use tracing::info;
+use tracing::{debug, info, info_span, warn};
 
 const TOP_LEFT_BORDER: Set = Set {
     top_left: "┌",
@@ -323,16 +323,8 @@ impl Lessons<'_> {
 
     // render the frames per second
     fn render_langs(&mut self, area: Rect, buf: &mut Buffer) {
-        let spoken = match self.spoken_language {
-            Some(code) => code.get_name_in_english().to_string(),
-            None => "All".to_string(),
-        };
-
-        let programming = match self.programming_language {
-            Some(code) => code.get_name().to_string(),
-            None => "All".to_string(),
-        };
-
+        let spoken = languages::spoken_name(self.spoken_language);
+        let programming = languages::programming_name(self.programming_language);
         let title = Line::from(vec![
             Span::styled(
                 format!("/ {} / {spoken} / {programming} /", self.workshop_title),
@@ -363,7 +355,8 @@ impl Lessons<'_> {
     ) -> Result<(), Error> {
         match event {
             tui::Event::LoadLessons => {
-                info!("Loading lessons");
+                let span = info_span!("Lessons");
+                let _enter = span.enter();
                 let (spoken, programming, workshop) = {
                     let status = status
                         .lock()
@@ -375,7 +368,12 @@ impl Lessons<'_> {
                     )
                 };
                 if let Some(workshop_data) = fs::workshops::load(&workshop) {
-                    info!("Loading lessons for workshop: {}", &workshop);
+                    info!(
+                        "Loading lessons for workshop: {} (spoken: {:?}, programming: {:?})",
+                        &workshop,
+                        languages::spoken_name(spoken),
+                        languages::programming_name(programming),
+                    );
                     let lessons = workshop_data.get_lessons_data(spoken, programming).await?;
                     let workshop_title = workshop_data.get_metadata(spoken).await?.title;
                     self.init(&lessons, workshop_title, spoken, programming)
@@ -384,11 +382,11 @@ impl Lessons<'_> {
                         .send((None, tui::Event::Show(screens::Screens::Lessons)).into())
                         .await?;
                 } else {
-                    info!("Failed to load workshop data for: {}", &workshop);
+                    warn!("Failed to load workshop data for: {}", &workshop);
                 }
             }
             _ => {
-                info!("Ignoring UI event: {:?}", event);
+                debug!("Ignoring UI event: {:?}", event);
             }
         }
         Ok(())

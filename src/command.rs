@@ -1,4 +1,10 @@
-use crate::ui::tui::{events::Event as TuiEvent, screens};
+use crate::{
+    evt,
+    ui::tui::{
+        events::Event as TuiEvent,
+        screens::{self, Screens},
+    },
+};
 use tokio::{
     io::{AsyncBufReadExt, BufReader},
     process::Command,
@@ -42,7 +48,7 @@ impl CommandRunner {
     ) -> Result<CommandResult, Box<dyn std::error::Error + Send + Sync>> {
         // Show Log screen when command starts
         self.event_sender
-            .send((Some(screens::Screens::Log), TuiEvent::CommandStarted).into())
+            .send(evt!(Screens::Log, TuiEvent::CommandStarted).into())
             .await?;
 
         // Build command
@@ -56,13 +62,7 @@ impl CommandRunner {
         // Send command info to log
         let cmd_info = format!("Running: {} {}", cmd, args.join(" "));
         self.event_sender
-            .send(
-                (
-                    Some(screens::Screens::Log),
-                    TuiEvent::CommandOutput(cmd_info),
-                )
-                    .into(),
-            )
+            .send(evt!(Screens::Log, TuiEvent::CommandOutput(cmd_info)).into())
             .await?;
 
         // Spawn process with piped stdout/stderr
@@ -99,9 +99,9 @@ impl CommandRunner {
                         Ok(Some(line)) => {
                             // Send each stdout line directly to Log screen (bypassing env filter)
                             self.event_sender
-                                .send((
-                                    Some(screens::Screens::Log),
-                                    TuiEvent::CommandOutput(line),
+                                .send(evt!(
+                                    Screens::Log,
+                                    TuiEvent::CommandOutput(line)
                                 ).into())
                                 .await?;
                         }
@@ -148,13 +148,7 @@ impl CommandRunner {
 
         // Send completion event
         self.event_sender
-            .send(
-                (
-                    Some(screens::Screens::Log),
-                    TuiEvent::CommandCompleted { success },
-                )
-                    .into(),
-            )
+            .send(evt!(Screens::Log, TuiEvent::CommandCompleted { success }).into())
             .await?;
 
         Ok(result)

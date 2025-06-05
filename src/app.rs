@@ -1,9 +1,10 @@
 use crate::{
     command::CommandRunner,
-    fs,
+    evt, fs, languages,
     ui::tui::{
         self,
         screens::{self, Screen, Screens},
+        Evt,
     },
     Error, Status,
 };
@@ -22,7 +23,7 @@ use tokio::{
     sync::mpsc::{Receiver, Sender},
 };
 use tokio_util::sync::CancellationToken;
-use tracing::{error, info};
+use tracing::{debug, error, info, trace};
 
 const MAX_LOG_LINES: usize = 10000;
 
@@ -51,7 +52,7 @@ pub struct App {
 impl App {
     /// Create a new UI
     pub fn new(from_logger: Receiver<String>) -> Result<Self, Error> {
-        info!("creating UI");
+        debug!("Creating UI");
         let (sender, receiver) = tokio::sync::mpsc::channel(1_000_000);
         let command_runner = CommandRunner::new(sender.clone());
 
@@ -70,7 +71,7 @@ impl App {
 
     // create the screens
     fn create_screens() -> HashMap<Screens, Box<dyn Screen>> {
-        info!("creating screens");
+        trace!("Creating screens");
         let mut screens = HashMap::<Screens, Box<dyn Screen>>::with_capacity(8);
 
         // Welcome Screen
@@ -106,7 +107,7 @@ impl App {
         // Lesson Screen
         screens.insert(Screens::Lesson, Box::new(screens::Lesson::default()));
 
-        info!("screens created: {:?}", screens.keys());
+        debug!("screens created: {:?}", screens.keys());
         screens
     }
 
@@ -219,219 +220,318 @@ impl App {
             // pass the event to the target screen
             if let Some(screen_state) = self.screens.get_mut(&dest_screen) {
                 return screen_state
-                    .handle_event((screen, event).into(), to_ui, status)
+                    .handle_event((Some(dest_screen), event).into(), to_ui, status)
                     .await;
             }
         } else {
             match event {
                 tui::Event::Quit => {
-                    info!("UI event: Quit");
+                    info!("Quit");
                     self.token.cancel();
                 }
                 tui::Event::ToggleLog => {
-                    info!("UI event: Toggle Log");
                     self.log.fetch_xor(true, Ordering::SeqCst);
                 }
                 tui::Event::Show(screen) => {
-                    info!("UI event: Show screen: {}", screen);
+                    info!("Show screen: {}", screen);
                     self.screen.store(screen.clone() as u8, Ordering::SeqCst);
                 }
-                tui::Event::SetSpokenLanguage(spoken_language, default) => {
-                    info!("UI event: Spoken language set: {:?}", spoken_language);
-                    if let Some(default) = default {
-                        info!(
-                            "Setting spoken language as default: {:?}, {}",
-                            spoken_language, default
-                        );
-                        {
-                            let mut status = self.status.lock().unwrap();
-                            status.set_spoken_language(spoken_language, default);
+                tui::Event::SetSpokenLanguage(spoken_language, default, next) => {
+                    info!(
+                        "Spoken language set: {}",
+                        languages::spoken_name(spoken_language)
+                    );
+
+                    let (default, next): (bool, Option<Evt>) = match default {
+                        Some(default) => {
+                            debug!(
+                                "Setting spoken language as default: {}, {}",
+                                languages::spoken_name(spoken_language),
+                                default
+                            );
+                            (default, next)
                         }
-                        to_ui
-                            .send(
-                                (Some(screens::Screens::Workshops), tui::Event::LoadWorkshops)
-                                    .into(),
-                            )
-                            .await?;
-                    } else {
-                        info!("Setting spoken language: {:?}", spoken_language);
-                        {
-                            let mut status = self.status.lock().unwrap();
-                            status.set_spoken_language(spoken_language, false);
+                        _ => {
+                            debug!(
+                                "Setting spoken language: {}",
+                                languages::spoken_name(spoken_language)
+                            );
+
+                            // this is the event to send if the user selects "yes" in the dialog
+                            let set_default_yes = evt!(
+                                None,
+                                tui::Event::SetSpokenLanguage(
+                                    spoken_language,
+                                    Some(true),
+                                    next.clone(),
+                                ),
+                            );
+
+                            // this is the event to send if the user selects "no" in the dialog
+                            let set_default_no = evt!(
+                                None,
+                                tui::Event::SetSpokenLanguage(
+                                    spoken_language,
+                                    Some(false),
+                                    next.clone(),
+                                ),
+                            );
+
+                            // this is the event to send to initialize the dialog
+                            let set_default = evt!(
+                                Screens::SetDefault,
+                                tui::Event::SetDefault(
+                                    "Set as Default?".to_string(),
+                                    Some(set_default_yes),
+                                    Some(set_default_no),
+                                ),
+                            );
+                            (false, Some(set_default))
                         }
-                        to_ui
-                            .send(
-                                (
-                                    Some(Screens::SetDefault),
-                                    tui::Event::SetDefault(
-                                        "Set as Default?".to_string(),
-                                        Some(Box::new(tui::Event::SetSpokenLanguage(
-                                            spoken_language,
-                                            Some(true),
-                                        ))),
-                                        Some(Box::new(tui::Event::SetSpokenLanguage(
-                                            spoken_language,
-                                            Some(false),
-                                        ))),
-                                    ),
-                                )
-                                    .into(),
-                            )
-                            .await?;
+                    };
+
+                    // set the default spoken language
+                    {
+                        let mut status = self
+                            .status
+                            .lock()
+                            .map_err(|e| Error::StatusLock(e.to_string()))?;
+                        status.set_spoken_language(spoken_language, default);
+                    }
+
+                    // send the next event if there is one
+                    if let Some(next) = next {
+                        to_ui.send(next.into()).await?;
                     }
                 }
-                tui::Event::SetProgrammingLanguage(programming_language, default) => {
+                tui::Event::SetProgrammingLanguage(programming_language, default, next) => {
                     info!(
-                        "UI event: Programming language set: {:?}",
-                        programming_language
+                        "Programming language set: {}",
+                        languages::programming_name(programming_language)
                     );
-                    if let Some(default) = default {
-                        info!(
-                            "Setting programming language as default: {:?}, {}",
-                            programming_language, default
-                        );
-                        {
-                            let mut status = self.status.lock().unwrap();
-                            status.set_programming_language(programming_language, default);
+
+                    let (default, n): (bool, Option<Evt>) = match default {
+                        Some(default) => {
+                            debug!(
+                                "Setting programming language as default: {}, {}, next: {:?}",
+                                languages::programming_name(programming_language),
+                                default,
+                                next
+                            );
+                            (default, next)
                         }
-                        to_ui
-                            .send(
-                                (Some(screens::Screens::Workshops), tui::Event::LoadWorkshops)
-                                    .into(),
-                            )
-                            .await?;
-                    } else {
-                        info!("Setting programming language: {:?}", programming_language);
-                        {
-                            let mut status = self.status.lock().unwrap();
-                            status.set_programming_language(programming_language, false);
+                        _ => {
+                            debug!(
+                                "Setting programming language: {}, next: {:?}",
+                                languages::programming_name(programming_language),
+                                next
+                            );
+
+                            // this is the event to send if the user selects "yes" in the dialog
+                            let set_default_yes = evt!(
+                                None,
+                                tui::Event::SetProgrammingLanguage(
+                                    programming_language,
+                                    Some(true),
+                                    next.clone(),
+                                ),
+                            );
+
+                            // this is the event to send if the user selects "no" in the dialog
+                            let set_default_no = evt!(
+                                None,
+                                tui::Event::SetProgrammingLanguage(
+                                    programming_language,
+                                    Some(false),
+                                    next.clone(),
+                                ),
+                            );
+
+                            // this is the event to send to initialize the dialog
+                            let set_default = evt!(
+                                Screens::SetDefault,
+                                tui::Event::SetDefault(
+                                    "Set as Default?".to_string(),
+                                    Some(set_default_yes),
+                                    Some(set_default_no),
+                                ),
+                            );
+                            (false, Some(set_default))
                         }
-                        to_ui
-                            .send(
-                                (
-                                    Some(Screens::SetDefault),
-                                    tui::Event::SetDefault(
-                                        "Set as Default?".to_string(),
-                                        Some(Box::new(tui::Event::SetProgrammingLanguage(
-                                            programming_language,
-                                            Some(true),
-                                        ))),
-                                        Some(Box::new(tui::Event::SetProgrammingLanguage(
-                                            programming_language,
-                                            Some(false),
-                                        ))),
-                                    ),
-                                )
-                                    .into(),
-                            )
-                            .await?;
+                    };
+
+                    // set the default programming language
+                    {
+                        let mut status = self
+                            .status
+                            .lock()
+                            .map_err(|e| Error::StatusLock(e.to_string()))?;
+                        status.set_programming_language(programming_language, default);
+                    }
+
+                    // send the next event if there is one
+                    if let Some(n) = n {
+                        to_ui.send(n.into()).await?;
                     }
                 }
                 tui::Event::SetWorkshop(workshop) => {
-                    info!("UI event: Workshop set: {:?}", workshop);
                     if let Some(workshop) = workshop {
                         info!("Setting workshop: {:?}", workshop);
                         let (programming_language, spoken_language) = {
-                            let mut status = self.status.lock().unwrap();
-                            status.set_workshop(Some(workshop.clone()));
-                            fs::workshops::init_data_dir(&workshop)?;
-
-                            // Get current languages
+                            let status = self
+                                .status
+                                .lock()
+                                .map_err(|e| Error::StatusLock(e.to_string()))?;
                             (status.programming_language(), status.spoken_language())
                         };
 
-                        // Run dependency check using workshop data (with fallback to defaults)
-                        if let Some(workshop_data) = fs::workshops::load(&workshop) {
-                            info!("Running dependency check for workshop: '{}'", workshop);
+                        if programming_language.is_none() {
+                            // this kicks off a cycle of selecting the programming language, asking
+                            // if they want to set it as the default, and then coming back here
+                            debug!("No programming language selected");
 
-                            // Get deps.py path using workshop model (handles defaults automatically)
-                            match workshop_data
-                                .get_deps_script_path(spoken_language, programming_language)
-                            {
-                                Ok(deps_script) => {
-                                    info!(
-                                        "Attempting to run dependency script: {}",
-                                        deps_script.display()
-                                    );
-                                    info!("Script exists: {}", deps_script.exists());
+                            let set_workshop =
+                                evt!(None, tui::Event::SetWorkshop(Some(workshop.clone())));
+                            let change_programming_language = (
+                                Some(Screens::Programming),
+                                tui::Event::ChangeProgrammingLanguage(
+                                    None,
+                                    false,
+                                    Some(set_workshop),
+                                ),
+                            );
 
-                                    // Run dependency check in background
-                                    let command_runner = self.command_runner.clone();
-                                    let token = self.token.clone();
-                                    let sender = to_ui.clone();
+                            to_ui.send(change_programming_language.into()).await?;
+                        } else if spoken_language.is_none() {
+                            // this kicks off a cycle of selecting the spoken language, asking
+                            // if they want to set it as the default, and then coming back here
+                            debug!("No spoken language selected");
 
-                                    tokio::spawn(async move {
-                                        match command_runner
-                                            .check_dependencies(&deps_script, &token)
-                                            .await
-                                        {
-                                            Ok(result) => {
-                                                info!(
-                                                    "Dependency check completed with exit code: {}",
-                                                    result.exit_code
-                                                );
-                                                // Send LoadLessons event after dependency check completes
-                                                let _ = sender
-                                                    .send(
-                                                        (
-                                                            Some(Screens::Lessons),
-                                                            tui::Event::LoadLessons,
-                                                        )
-                                                            .into(),
-                                                    )
-                                                    .await;
-                                            }
-                                            Err(e) => {
-                                                error!("Failed to check dependencies: {}", e);
-                                                // Still proceed to lessons even if dependency check fails
-                                                let _ = sender
-                                                    .send(
-                                                        (
-                                                            Some(Screens::Lessons),
-                                                            tui::Event::LoadLessons,
-                                                        )
-                                                            .into(),
-                                                    )
-                                                    .await;
-                                            }
-                                        }
-                                    });
-                                }
-                                Err(e) => {
-                                    error!("Failed to get deps script path: {}", e);
-                                    // Proceed to lessons even if we can't get the script path
-                                    to_ui
-                                        .send(
-                                            (Some(Screens::Lessons), tui::Event::LoadLessons)
-                                                .into(),
-                                        )
-                                        .await?;
-                                }
-                            }
+                            let set_workshop =
+                                evt!(None, tui::Event::SetWorkshop(Some(workshop.clone())));
+                            let change_spoken_language = (
+                                Some(Screens::Spoken),
+                                tui::Event::ChangeSpokenLanguage(None, false, Some(set_workshop)),
+                            );
+
+                            to_ui.send(change_spoken_language.into()).await?;
                         } else {
-                            error!("Failed to load workshop data for: {}", workshop);
-                            // Proceed to lessons even if workshop data loading fails
+                            // we have both languages selected, so we can proceed with setting the
+                            // workshop, initializing the local workshop data and loading the lessons
+                            info!("Workshop selected: {}", workshop);
+                            {
+                                let mut status = self
+                                    .status
+                                    .lock()
+                                    .map_err(|e| Error::StatusLock(e.to_string()))?;
+                                status.set_workshop(Some(workshop.clone()));
+                                fs::workshops::init_data_dir(&workshop)?;
+                            }
                             to_ui
                                 .send((Some(Screens::Lessons), tui::Event::LoadLessons).into())
                                 .await?;
                         }
                     } else {
-                        info!("Clearing workshop");
+                        debug!("Clearing workshop");
                         {
-                            let mut status = self.status.lock().unwrap();
+                            let mut status = self
+                                .status
+                                .lock()
+                                .map_err(|e| Error::StatusLock(e.to_string()))?;
                             status.set_workshop(None);
                         }
                         to_ui
                             .send((Some(Screens::Workshops), tui::Event::LoadWorkshops).into())
                             .await?;
                     }
+
+                    /*
+
+                    // Run dependency check using workshop data (with fallback to defaults)
+                    if let Some(workshop_data) = fs::workshops::load(&workshop) {
+                        info!("Running dependency check for workshop: '{}'", workshop);
+
+                        // Get deps.py path using workshop model (handles defaults automatically)
+                        match workshop_data
+                            .get_deps_script_path(spoken_language, programming_language)
+                        {
+                            Ok(deps_script) => {
+                                info!(
+                                    "Attempting to run dependency script: {}",
+                                    deps_script.display()
+                                );
+                                info!("Script exists: {}", deps_script.exists());
+
+                                // Run dependency check in background
+                                let command_runner = self.command_runner.clone();
+                                let token = self.token.clone();
+                                let sender = to_ui.clone();
+
+                                tokio::spawn(async move {
+                                    match command_runner
+                                        .check_dependencies(&deps_script, &token)
+                                        .await
+                                    {
+                                        Ok(result) => {
+                                            info!(
+                                                "Dependency check completed with exit code: {}",
+                                                result.exit_code
+                                            );
+                                            // Send LoadLessons event after dependency check completes
+                                            let _ = sender
+                                                .send(
+                                                    (
+                                                        Some(Screens::Lessons),
+                                                        tui::Event::LoadLessons,
+                                                    )
+                                                        .into(),
+                                                )
+                                                .await;
+                                        }
+                                        Err(e) => {
+                                            error!("Failed to check dependencies: {}", e);
+                                            // Still proceed to lessons even if dependency check fails
+                                            let _ = sender
+                                                .send(
+                                                    (
+                                                        Some(Screens::Lessons),
+                                                        tui::Event::LoadLessons,
+                                                    )
+                                                        .into(),
+                                                )
+                                                .await;
+                                        }
+                                    }
+                                });
+                            }
+                            Err(e) => {
+                                error!("Failed to get deps script path: {}", e);
+                                // Proceed to lessons even if we can't get the script path
+                                to_ui
+                                    .send(
+                                        (Some(Screens::Lessons), tui::Event::LoadLessons)
+                                            .into(),
+                                    )
+                                    .await?;
+                            }
+                        }
+                    } else {
+                        error!("Failed to load workshop data for: {}", workshop);
+                        // Proceed to lessons even if workshop data loading fails
+                        to_ui
+                            .send((Some(Screens::Lessons), tui::Event::LoadLessons).into())
+                            .await?;
+                    }
+                    */
                 }
                 tui::Event::SetLesson(lesson) => {
-                    info!("UI event: Lesson set: {:?}", lesson);
+                    info!("Lesson set: {:?}", lesson);
                     if let Some(lesson) = lesson {
                         info!("Setting lesson: {:?}", lesson);
                         {
-                            let mut status = self.status.lock().unwrap();
+                            let mut status = status
+                                .lock()
+                                .map_err(|e| Error::StatusLock(e.to_string()))?;
                             status.set_lesson(Some(lesson.clone()));
                         }
                         to_ui
@@ -440,7 +540,9 @@ impl App {
                     } else {
                         info!("Clearing lesson");
                         {
-                            let mut status = self.status.lock().unwrap();
+                            let mut status = status
+                                .lock()
+                                .map_err(|e| Error::StatusLock(e.to_string()))?;
                             status.set_lesson(None);
                         }
                         to_ui
@@ -449,11 +551,11 @@ impl App {
                     }
                 }
                 tui::Event::CommandStarted => {
-                    info!("UI event: Command started - showing log screen");
+                    info!("Command started - showing log screen");
                     self.log.store(true, Ordering::SeqCst);
                 }
                 tui::Event::CommandCompleted { success } => {
-                    info!("UI event: Command completed - success: {}", success);
+                    info!("Command completed - success: {}", success);
                     if success {
                         // Hide log screen on successful command completion
                         self.log.store(false, Ordering::SeqCst);
@@ -467,7 +569,7 @@ impl App {
                         .await?;
                 }
                 tui::Event::CheckSolution => {
-                    info!("UI event: Check solution");
+                    info!("Check solution");
                     // Get current status information
                     let (spoken, programming, workshop, lesson) = {
                         let status = status
@@ -575,13 +677,9 @@ impl App {
             match key.code {
                 // These key bindings work on every screen
                 KeyCode::Char('q') | KeyCode::Char('Q') => {
-                    info!("input event: Quit");
                     self.token.cancel();
                 }
-                KeyCode::Char('`') => {
-                    info!("input event: Show Log");
-                    to_ui.send((None, tui::Event::ToggleLog).into()).await?
-                }
+                KeyCode::Char('`') => to_ui.send((None, tui::Event::ToggleLog).into()).await?,
                 _ => {
                     if self.log.load(Ordering::SeqCst) {
                         // send key events to the log window if it is showing

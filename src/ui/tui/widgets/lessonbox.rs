@@ -32,7 +32,7 @@ pub struct Heading {
 impl ContentBlock for Heading {
     fn render(&self, width: u16) -> Vec<Line<'static>> {
         let style = Style::default()
-            .fg(Color::Blue)
+            .fg(Color::LightBlue)
             .add_modifier(Modifier::BOLD);
 
         let wrapped_lines = textwrap::wrap(&self.text, width as usize);
@@ -179,9 +179,9 @@ impl CodeBlock {
         let mut spans = Vec::new();
         let mut current_word = String::new();
         let mut in_string = false;
-        let mut chars = line.chars().peekable();
+        let chars = line.chars().peekable();
 
-        while let Some(ch) = chars.next() {
+        for ch in chars {
             match ch {
                 '"' => {
                     if !current_word.is_empty() {
@@ -308,7 +308,7 @@ impl ContentBlock for Hint {
                 .add_modifier(Modifier::BOLD);
 
             let mut lines = vec![Line::from(Span::styled(
-                format!("▼ {}", self.title),
+                format!("▼ Hint: {}", self.title),
                 title_style,
             ))];
 
@@ -334,7 +334,7 @@ impl ContentBlock for Hint {
                 .add_modifier(Modifier::BOLD);
 
             vec![Line::from(Span::styled(
-                format!("▶ {}", self.title),
+                format!("▶ Hint: {}", self.title),
                 title_style,
             ))]
         }

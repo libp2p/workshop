@@ -3,6 +3,19 @@ use crate::{
     ui::tui::screens::Screens,
 };
 
+/// a type alias defining a targeted event
+pub type Evt = (Option<Screens>, Box<Event>);
+
+#[macro_export]
+macro_rules! evt {
+    (None, $event:expr $(,)?) => {
+        (None, Box::new($event))
+    };
+    ($screen:expr, $event:expr $(,)?) => {
+        (Some($screen), Box::new($event))
+    };
+}
+
 /// UI events
 #[derive(Clone, Debug)]
 pub enum Event {
@@ -21,15 +34,31 @@ pub enum Event {
     /// load the license for a workshop
     ShowLicense(String),
     /// change the spoken language
-    ChangeSpokenLanguage,
+    ChangeSpokenLanguage(
+        Option<spoken::Code>,
+        bool,        // show the "Any" option?
+        Option<Evt>, // the event to send when language is selected
+    ),
     /// set the default spoken language
-    SetSpokenLanguage(Option<spoken::Code>, Option<bool>),
+    SetSpokenLanguage(Option<spoken::Code>, Option<bool>, Option<Evt>),
     /// change the programming language
-    ChangeProgrammingLanguage,
+    ChangeProgrammingLanguage(
+        Option<programming::Code>,
+        bool,        // show the "Any" option?
+        Option<Evt>, // the event to send language is selected
+    ),
     /// set the default programming language
-    SetProgrammingLanguage(Option<programming::Code>, Option<bool>),
+    SetProgrammingLanguage(
+        Option<programming::Code>,
+        Option<bool>,
+        Option<Evt>, // the event to send after setting language
+    ),
     /// initialize the "set default" dialog
-    SetDefault(String, Option<Box<Event>>, Option<Box<Event>>),
+    SetDefault(
+        String,
+        Option<Evt>, // the event to send when they select "yes"
+        Option<Evt>, // the event to send when they select "no"
+    ),
     /// load lessons
     LoadLessons,
     /// set the lesson

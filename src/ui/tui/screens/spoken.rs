@@ -1,7 +1,7 @@
 use crate::{
     fs,
     languages::spoken,
-    ui::tui::{self, screens, Screen},
+    ui::tui::{self, screens, Evt, Screen},
     Error, Status,
 };
 use crossterm::event::{self, KeyCode};
@@ -17,7 +17,7 @@ use ratatui::{
 };
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc::Sender;
-use tracing::info;
+use tracing::{debug, info};
 
 const TOP_DIALOG_BORDER: Set = Set {
     top_left: "┌",
@@ -47,6 +47,10 @@ pub struct Spoken<'a> {
     spoken_languages: Vec<spoken::Code>,
     /// the currently selected spoken language
     spoken_language: Option<spoken::Code>,
+    /// allow "Any" choice
+    allow_any: bool,
+    /// the event to pass to the SetProgrammingLanguage event
+    event: Option<Evt>,
     /// the vertical lines of the dialog,
     lines: u16,
     /// the cached rect from last render
@@ -60,36 +64,34 @@ pub struct Spoken<'a> {
 }
 
 impl Spoken<'_> {
-    /// set the spoken language list
-    async fn set_spoken_languages(
+    /// set initialize the screen
+    async fn init(
         &mut self,
         spoken_languages: &[spoken::Code],
         spoken_language: Option<spoken::Code>,
+        allow_any: bool,
+        event: Option<Evt>,
     ) -> Result<(), Error> {
         self.spoken_languages = spoken_languages.to_vec();
         self.spoken_language = spoken_language;
-        self.lines = self.spoken_languages.len() as u16 + 5; // +1 for Any and +4 for borders and
+        self.allow_any = allow_any;
+        self.event = event;
 
-        let mut spoken_language_names = vec!["Any".to_string()];
-        spoken_language_names.extend(
-            spoken_languages
-                .iter()
-                .map(|code| code.get_name_in_english().to_string()),
-        );
-        let selected_index = match self.spoken_language {
-            Some(code) => match spoken_languages.iter().position(|&c| c == code) {
-                Some(index) => Some(index + 1),
-                None => Some(0),
-            },
-            None => Some(0),
-        };
+        // calculate the vertical lines of the dialog
+        self.lines = self.selection_lines(spoken_languages) + 4;
+
+        // reset the cached rects so they get recalculated
+        self.area = Rect::default();
+        self.centered = Rect::default();
 
         let title = Line::from(vec![
             Span::styled("─", Style::default().fg(Color::DarkGray)),
-            Span::styled("/ Spoken Languages /", Style::default().fg(Color::White)),
+            Span::styled(
+                "/ Select a Spoken Language /",
+                Style::default().fg(Color::White),
+            ),
         ]);
-        self.list_state.select(selected_index);
-        self.list = List::new(spoken_language_names)
+        self.list = List::new(self.language_names())
             .block(
                 Block::default()
                     .title(title)
@@ -107,8 +109,73 @@ impl Spoken<'_> {
             )
             .style(Style::default().fg(Color::White))
             .highlight_symbol("> ");
+        self.list_state
+            .select(self.selection_from_language(self.spoken_language));
 
         Ok(())
+    }
+
+    fn selection_lines<T, S: AsRef<[T]>>(&self, s: S) -> u16 {
+        // If "Any" is allowed, we add one more line for the "Any" option
+        if self.allow_any {
+            s.as_ref().len() as u16 + 1
+        } else {
+            s.as_ref().len() as u16
+        }
+    }
+
+    fn lang_to_selection(&self, index: usize) -> usize {
+        if self.allow_any {
+            // If "Any" is allowed, the index is shifted by 1
+            index + 1 // shift other indices by 1
+        } else {
+            index
+        }
+    }
+
+    fn selection_to_lang(&self, index: usize) -> usize {
+        if self.allow_any {
+            // If "Any" is allowed, the index is shifted back by 1
+            index.saturating_sub(1)
+        } else {
+            index
+        }
+    }
+
+    fn language_names(&self) -> Vec<String> {
+        let mut names = if self.allow_any {
+            vec!["Any".to_string()]
+        } else {
+            vec![]
+        };
+        names.extend(
+            self.spoken_languages
+                .iter()
+                .map(|code| code.get_name_in_english().to_string()),
+        );
+        names
+    }
+
+    fn language_from_selection(&self, index: usize) -> Option<spoken::Code> {
+        if index == 0 && self.allow_any {
+            // If "Any" is selected, return None
+            None
+        } else {
+            // Otherwise, get the programming language from the list
+            self.spoken_languages
+                .get(self.selection_to_lang(index))
+                .cloned()
+        }
+    }
+
+    fn selection_from_language(&self, lang: Option<spoken::Code>) -> Option<usize> {
+        match lang {
+            Some(code) => match self.spoken_languages.iter().position(|&c| c == code) {
+                Some(index) => Some(self.lang_to_selection(index)),
+                None => Some(0),
+            },
+            None => Some(0),
+        }
     }
 
     fn recalculate_rect(&mut self, area: Rect) {
@@ -165,23 +232,24 @@ impl Spoken<'_> {
         &mut self,
         event: tui::Event,
         to_ui: Sender<screens::Event>,
-        status: Arc<Mutex<Status>>,
+        _status: Arc<Mutex<Status>>,
     ) -> Result<(), Error> {
         match event {
-            tui::Event::ChangeSpokenLanguage => {
+            tui::Event::ChangeSpokenLanguage(spoken, allow_any, next) => {
                 info!("Changing spoken language");
-                let spoken = {
-                    let status = status.lock().unwrap();
-                    status.spoken_language()
-                };
-                self.set_spoken_languages(&fs::application::all_spoken_languages()?, spoken)
-                    .await?;
+                self.init(
+                    &fs::application::all_spoken_languages()?,
+                    spoken,
+                    allow_any,
+                    next,
+                )
+                .await?;
                 to_ui
                     .send((None, tui::Event::Show(screens::Screens::Spoken)).into())
                     .await?;
             }
             _ => {
-                info!("Ignoring UI event: {:?}", event);
+                debug!("Ignoring UI event: {:?}", event);
             }
         }
         Ok(())
@@ -207,27 +275,19 @@ impl Spoken<'_> {
                 KeyCode::Char('j') | KeyCode::Down => self.list_state.select_next(),
                 KeyCode::Char('k') | KeyCode::Up => self.list_state.select_previous(),
                 KeyCode::Enter => {
+                    // take the event leaving None in its place
+                    let event = self.event.take();
                     if let Some(selected) = self.list_state.selected() {
-                        let spoken_language = if selected == 0 {
-                            info!("Spoken language selected: Any");
-                            None
-                        } else {
-                            match self.spoken_languages.get(selected - 1) {
-                                Some(code) => {
-                                    info!("Spoken language selected: {:?}", code);
-                                    Some(*code)
-                                }
-                                None => {
-                                    info!("No spoken language selected");
-                                    None
-                                }
-                            }
-                        };
-                        to_ui
-                            .send(
-                                (None, tui::Event::SetSpokenLanguage(spoken_language, None)).into(),
-                            )
-                            .await?;
+                        let spoken_language = self.language_from_selection(selected);
+                        let set_spoken_language = (
+                            None,
+                            tui::Event::SetSpokenLanguage(
+                                spoken_language,
+                                None, // None, because we don't know if it should be the default
+                                event,
+                            ),
+                        );
+                        to_ui.send(set_spoken_language.into()).await?;
                     }
                 }
                 _ => {}

@@ -1,6 +1,10 @@
 use crate::{
     languages::spoken,
-    ui::tui::{self, screens, Screen},
+    ui::tui::{
+        self,
+        screens::{self, Screens},
+        Evt, Screen,
+    },
     Error, Status,
 };
 use crossterm::event::{self, KeyCode};
@@ -16,7 +20,7 @@ use ratatui::{
 };
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc::Sender;
-use tracing::info;
+use tracing::{debug, info};
 
 const TOP_DIALOG_BORDER: Set = Set {
     top_left: "┌",
@@ -53,9 +57,9 @@ pub struct SetDefault<'a> {
     /// programming language list state
     list_state: ListState,
     /// event to send if they select "yes"
-    yes: Option<Box<tui::Event>>,
+    yes: Option<Evt>,
     /// event to send if they select "no"
-    no: Option<Box<tui::Event>>,
+    no: Option<Evt>,
     /// the currently selected spoken language
     spoken_language: Option<spoken::Code>,
 }
@@ -65,8 +69,8 @@ impl SetDefault<'_> {
         &mut self,
         title: &str,
         spoken_language: Option<spoken::Code>,
-        yes: Option<Box<tui::Event>>,
-        no: Option<Box<tui::Event>>,
+        yes: Option<Evt>,
+        no: Option<Evt>,
     ) -> Result<(), Error> {
         self.title = title.to_string();
         self.spoken_language = spoken_language;
@@ -167,13 +171,12 @@ impl SetDefault<'_> {
                     status.spoken_language()
                 };
                 self.init(&title, spoken, yes, no).await?;
-                info!("Showing SetDefault screen");
                 to_ui
-                    .send((None, tui::Event::Show(screens::Screens::SetDefault)).into())
+                    .send((None, tui::Event::Show(Screens::SetDefault)).into())
                     .await?;
             }
             _ => {
-                info!("Ignoring UI event: {:?}", event);
+                debug!("Ignoring UI event: {:?}", event);
             }
         }
         Ok(())
@@ -186,23 +189,25 @@ impl SetDefault<'_> {
         to_ui: Sender<screens::Event>,
         _status: Arc<Mutex<Status>>,
     ) -> Result<(), Error> {
-        info!("SetDefault input event: {:?}", event);
         if let event::Event::Key(key) = event {
             match key.code {
                 KeyCode::Char('j') | KeyCode::Down => self.list_state.select_next(),
                 KeyCode::Char('k') | KeyCode::Up => self.list_state.select_previous(),
                 KeyCode::Enter => {
+                    // take the events leaving None in their place
+                    let yes = self.yes.take();
+                    let no = self.no.take();
                     match self.list_state.selected() {
                         Some(0) => {
-                            if let Some(event) = self.yes.take() {
-                                info!("Setting default: {:?}", event);
-                                to_ui.send((None, *event).into()).await?;
+                            if let Some(yes) = yes {
+                                debug!("Setting default: {:?}", yes);
+                                to_ui.send(yes.into()).await?;
                             }
                         }
                         Some(_) | None => {
-                            if let Some(event) = self.no.take() {
-                                info!("Clearing default: {:?}", event);
-                                to_ui.send((None, *event).into()).await?;
+                            if let Some(no) = no {
+                                debug!("Clearing default: {:?}", no);
+                                to_ui.send(no.into()).await?;
                             }
                         }
                     };

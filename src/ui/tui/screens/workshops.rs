@@ -1,8 +1,13 @@
 use crate::{
-    fs,
-    languages::{programming, spoken},
+    evt, fs,
+    languages::{self, programming, spoken},
     models::{Workshop, WorkshopData},
-    ui::tui::{self, screens, widgets::ScrollBox, Screen},
+    ui::tui::{
+        self,
+        screens::{self, Screens},
+        widgets::ScrollBox,
+        Screen,
+    },
     Error, Status,
 };
 use crossterm::event::{self, KeyCode};
@@ -20,7 +25,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 use tokio::sync::mpsc::Sender;
-use tracing::{error, info};
+use tracing::{debug, error, info, info_span};
 
 const TOP_LEFT_BORDER: Set = Set {
     top_left: "┌",
@@ -135,7 +140,6 @@ impl Workshops<'_> {
         spoken_language: Option<spoken::Code>,
         programming_language: Option<programming::Code>,
     ) -> Result<(), Error> {
-        info!("Initializing workshops");
         self.workshops = workshops.clone();
         self.spoken_language = spoken_language;
         self.programming_language = programming_language;
@@ -166,7 +170,7 @@ impl Workshops<'_> {
 
     // get the workshop titles
     async fn get_titles(&mut self) -> Result<Vec<String>, Error> {
-        info!("Caching workshop titles");
+        debug!("Caching workshop titles");
         self.titles_map.clear();
         for (key, wd) in self.workshops.iter() {
             let workshop = wd.get_metadata(self.spoken_language).await?;
@@ -177,7 +181,7 @@ impl Workshops<'_> {
 
     // cached selected workshop data
     async fn cache_selected(&mut self) -> Result<(), Error> {
-        info!("Caching selected workshop data");
+        debug!("Caching selected workshop data");
         self.selected = None;
         if let Some(workshop_key) = self.get_selected_workshop_key() {
             if let Some(workshop_data) = self.workshops.get(&workshop_key) {
@@ -494,16 +498,8 @@ impl Workshops<'_> {
 
     // render the selected languages
     fn render_lang(&mut self, area: Rect, buf: &mut Buffer) {
-        let spoken = match self.spoken_language {
-            Some(code) => code.get_name_in_english().to_string(),
-            None => "All".to_string(),
-        };
-
-        let programming = match self.programming_language {
-            Some(code) => code.get_name().to_string(),
-            None => "All".to_string(),
-        };
-
+        let spoken = languages::spoken_name(self.spoken_language);
+        let programming = languages::programming_name(self.programming_language);
         let title = Line::from(vec![
             Span::styled(
                 format!("/ {spoken} / {programming} /"),
@@ -534,11 +530,17 @@ impl Workshops<'_> {
     ) -> Result<(), Error> {
         match event {
             tui::Event::LoadWorkshops => {
-                info!("Loading workshops");
+                let span = info_span!("Workshops");
+                let _enter = span.enter();
                 let (spoken, programming) = {
                     let status = status.lock().unwrap();
                     (status.spoken_language(), status.programming_language())
                 };
+                info!(
+                    "Loading workshops (spoken: {:?}, programming: {:?})",
+                    languages::spoken_name(spoken),
+                    languages::programming_name(programming),
+                );
                 let workshops = fs::application::all_workshops_filtered(spoken, programming)?;
                 self.init(&workshops, spoken, programming).await?;
                 to_ui
@@ -546,7 +548,7 @@ impl Workshops<'_> {
                     .await?;
             }
             _ => {
-                info!("Ignoring UI event: {:?}", event);
+                debug!("Ignoring UI event: {:?}", event);
             }
         }
         Ok(())
@@ -578,30 +580,24 @@ impl Workshops<'_> {
                             )
                             .await?;
                     } else {
-                        info!("No selected workshop");
+                        debug!("No selected workshop");
                     }
                 }
                 KeyCode::Char('p') | KeyCode::Char('P') => {
-                    to_ui
-                        .send(
-                            (
-                                Some(screens::Screens::Programming),
-                                tui::Event::ChangeProgrammingLanguage,
-                            )
-                                .into(),
-                        )
-                        .await?;
+                    let set_workshop = evt!(Screens::Workshops, tui::Event::LoadWorkshops);
+                    let change_programming_language = (
+                        Some(Screens::Programming),
+                        tui::Event::ChangeProgrammingLanguage(None, true, Some(set_workshop)),
+                    );
+                    to_ui.send(change_programming_language.into()).await?;
                 }
                 KeyCode::Char('s') | KeyCode::Char('S') => {
-                    to_ui
-                        .send(
-                            (
-                                Some(screens::Screens::Spoken),
-                                tui::Event::ChangeSpokenLanguage,
-                            )
-                                .into(),
-                        )
-                        .await?;
+                    let set_workshop = evt!(Screens::Workshops, tui::Event::LoadWorkshops);
+                    let change_spoken_language = (
+                        Some(Screens::Spoken),
+                        tui::Event::ChangeSpokenLanguage(None, true, Some(set_workshop)),
+                    );
+                    to_ui.send(change_spoken_language.into()).await?;
                 }
                 KeyCode::Char('w') | KeyCode::Char('W') => {
                     if let Some(url) = self.get_url() {

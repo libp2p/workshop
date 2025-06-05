@@ -216,6 +216,7 @@ pub mod workshops {
             let entry = entry?;
             if entry.path().is_dir() {
                 let workshop_name = entry.file_name().to_string_lossy().to_string();
+                info!("... {workshop_name}");
                 let workshop_data = workshop::Loader::new(&workshop_name)
                     .path(data_dir)
                     .try_load()?;

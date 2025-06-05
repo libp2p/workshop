@@ -11,7 +11,7 @@ use std::{
     sync::Arc,
 };
 use tokio::sync::RwLock;
-use tracing::info;
+use tracing::trace;
 
 /// Represents the status of a Lesson
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
@@ -113,7 +113,7 @@ impl TryLoad for LessonData {
 
     async fn try_load(path: &Path) -> Result<Self, Self::Error> {
         // try to get the spoken and programming languages from the path
-        info!(
+        trace!(
             "Getting name, spoken, and programming from path: {}",
             path.display()
         );
@@ -125,18 +125,18 @@ impl TryLoad for LessonData {
                 .ok_or::<Error>(ModelError::LessonDataDirNotFound.into())?
                 .to_string();
             path.pop();
-            info!("Lesson name: {name}, rest: {}", path.display());
+            trace!("Lesson name: {name}, rest: {}", path.display());
             let programming_language = path
                 .file_name()
                 .and_then(|p| programming::Code::try_from(p.to_string_lossy().as_ref()).ok())
                 .ok_or::<Error>(ModelError::NoProgrammingLanguageSpecified.into())?;
-            info!("Programming language: {programming_language}");
+            trace!("Programming language: {programming_language}");
             path.pop();
             let spoken_language = path
                 .file_name()
                 .and_then(|p| spoken::Code::try_from(p.to_string_lossy().as_ref()).ok())
                 .ok_or::<Error>(ModelError::NoSpokenLanguageSpecified.into())?;
-            info!(
+            trace!(
                 "Spoken language: {spoken_language}, rest: {}",
                 path.display()
             );

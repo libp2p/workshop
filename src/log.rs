@@ -1,5 +1,6 @@
 use crate::Error;
 use std::{
+    cell::RefCell,
     fmt,
     fs::{File, OpenOptions},
     io::Write,
@@ -9,16 +10,20 @@ use std::{
 use tokio::sync::mpsc::{self, Receiver, Sender};
 use tracing::{
     field::{Field, Visit},
-    Event, Subscriber,
+    Event, Id, Subscriber,
 };
 use tracing_subscriber::{
     filter::EnvFilter, layer::Context, prelude::*, registry::LookupSpan, Layer,
 };
 
+thread_local! {
+    static INDENT_LEVEL: RefCell<usize> = const { RefCell::new(0) };
+}
+
 // Custom tracing layer to send log events over mpsc
 struct MpscLayer {
     sender: Sender<String>,
-    file: Option<Mutex<File>>,
+    file: Mutex<Option<File>>,
 }
 
 // Implement a visitor to extract fields from the event
@@ -27,6 +32,11 @@ struct FieldVisitor {
 }
 
 impl Visit for FieldVisitor {
+    fn record_str(&mut self, field: &Field, value: &str) {
+        if field.name() == "message" {
+            self.message = Some(value.to_string());
+        }
+    }
     fn record_debug(&mut self, field: &Field, value: &dyn fmt::Debug) {
         if field.name() == "message" {
             self.message = Some(format!("{:?}", value));
@@ -38,18 +48,56 @@ impl<S> Layer<S> for MpscLayer
 where
     S: Subscriber + for<'a> LookupSpan<'a>,
 {
+    fn on_enter(&self, id: &Id, ctx: Context<'_, S>) {
+        // Increase the indent level when entering a span
+        INDENT_LEVEL.with(|level| {
+            *level.borrow_mut() += 1;
+        });
+
+        // Log the span enter event
+        if let Some(span) = ctx.span(id) {
+            let indent = INDENT_LEVEL.with(|l| "  ".repeat(*l.borrow()));
+            let name = span.name();
+            let msg = format!("{}Entering: {}", indent, name);
+            // if a file is provided, write the log message to it
+            if let Ok(mut guard) = self.file.lock() {
+                if let Some(file) = guard.as_mut() {
+                    writeln!(file, "{msg}").unwrap();
+                    let _ = file.flush();
+                }
+            }
+            let _ = self.sender.try_send(msg);
+        }
+    }
+
+    fn on_exit(&self, _id: &Id, _ctx: Context<S>) {
+        // Decrease the indent level when exiting a span
+        INDENT_LEVEL.with(|level| {
+            let mut level = level.borrow_mut();
+            *level = level.saturating_sub(1);
+        });
+    }
+
     fn on_event(&self, event: &Event<'_>, _ctx: Context<'_, S>) {
         let mut visitor = FieldVisitor { message: None };
         event.record(&mut visitor);
 
         // get the log message and format it
+        let indent = INDENT_LEVEL.with(|l| "  ".repeat(*l.borrow()));
         let level = *event.metadata().level();
         let message = visitor.message.unwrap_or_default();
-        let msg = format!("[{}]: {}", level, message);
+        let emoji = match level {
+            tracing::Level::ERROR => "❗ ",
+            tracing::Level::WARN => "⚠️ ",
+            tracing::Level::INFO => "",
+            tracing::Level::DEBUG => "",
+            tracing::Level::TRACE => "",
+        };
+        let msg = format!("{indent}{emoji} {message}");
 
         // if a file is provided, write the log message to it
-        if let Some(mutex) = &self.file {
-            if let Ok(mut file) = mutex.lock() {
+        if let Ok(mut guard) = self.file.lock() {
+            if let Some(file) = guard.as_mut() {
                 writeln!(file, "{msg}").unwrap();
                 let _ = file.flush();
             }
@@ -69,7 +117,7 @@ impl Log {
     pub fn init<T: AsRef<Path>>(log: Option<T>) -> Result<Receiver<String>, Error> {
         let (sender, receiver) = mpsc::channel(16);
         let file = if let Some(path) = log {
-            Some(Mutex::new(
+            Mutex::new(Some(
                 OpenOptions::new()
                     .write(true)
                     .create(true)
@@ -77,7 +125,7 @@ impl Log {
                     .open(path.as_ref())?,
             ))
         } else {
-            None
+            Mutex::new(None)
         };
 
         let filter = EnvFilter::from_default_env();

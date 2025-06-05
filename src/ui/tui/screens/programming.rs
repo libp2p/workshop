@@ -1,7 +1,11 @@
 use crate::{
     fs,
     languages::programming,
-    ui::tui::{self, screens, Screen},
+    ui::tui::{
+        self,
+        screens::{self, Screens},
+        Evt, Screen,
+    },
     Error, Status,
 };
 use crossterm::event::{self, KeyCode};
@@ -17,7 +21,7 @@ use ratatui::{
 };
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc::Sender;
-use tracing::info;
+use tracing::{debug, info};
 
 const TOP_DIALOG_BORDER: Set = Set {
     top_left: "┌",
@@ -47,6 +51,10 @@ pub struct Programming<'a> {
     programming_languages: Vec<programming::Code>,
     /// the currenttly selected programming language
     programming_language: Option<programming::Code>,
+    /// allow "Any" choice
+    allow_any: bool,
+    /// the event to pass to the SetProgrammingLanguage event
+    event: Option<Evt>,
     /// the vertical lines of the dialog,
     lines: u16,
     /// the cached rect from last render
@@ -60,39 +68,34 @@ pub struct Programming<'a> {
 }
 
 impl Programming<'_> {
-    /// set the programming language list
-    async fn set_programming_languages(
+    /// set initialize the screen
+    async fn init(
         &mut self,
         programming_languages: &[programming::Code],
         programming_language: Option<programming::Code>,
+        allow_any: bool,
+        event: Option<Evt>,
     ) -> Result<(), Error> {
         self.programming_languages = programming_languages.to_vec();
         self.programming_language = programming_language;
-        self.lines = self.programming_languages.len() as u16 + 5; // +1 for Any and +4 for borders and
+        self.allow_any = allow_any;
+        self.event = event;
 
-        let mut programming_language_names = vec!["Any".to_string()];
-        programming_language_names.extend(
-            programming_languages
-                .iter()
-                .map(|code| code.get_name().to_string()),
-        );
-        let select_index = match self.programming_language {
-            Some(code) => match programming_languages.iter().position(|&c| c == code) {
-                Some(index) => Some(index + 1),
-                None => Some(0),
-            },
-            None => Some(0),
-        };
+        // calculate the vertical lines of the dialog
+        self.lines = self.selection_lines(programming_languages) + 4;
+
+        // reset the cached rects so they get recalculated
+        self.area = Rect::default();
+        self.centered = Rect::default();
 
         let title = Line::from(vec![
             Span::styled("─", Style::default().fg(Color::DarkGray)),
             Span::styled(
-                "/ Programming Languages /",
+                "/ Select a Programming Language /",
                 Style::default().fg(Color::White),
             ),
         ]);
-        self.list_state.select(select_index);
-        self.list = List::new(programming_language_names)
+        self.list = List::new(self.language_names())
             .block(
                 Block::default()
                     .title(title)
@@ -110,7 +113,73 @@ impl Programming<'_> {
             )
             .style(Style::default().fg(Color::White))
             .highlight_symbol("> ");
+        self.list_state
+            .select(self.selection_from_language(self.programming_language));
+
         Ok(())
+    }
+
+    fn selection_lines<T, S: AsRef<[T]>>(&self, s: S) -> u16 {
+        // If "Any" is allowed, we add one more line for the "Any" option
+        if self.allow_any {
+            s.as_ref().len() as u16 + 1
+        } else {
+            s.as_ref().len() as u16
+        }
+    }
+
+    fn lang_to_selection(&self, index: usize) -> usize {
+        if self.allow_any {
+            // If "Any" is allowed, the index is shifted by 1
+            index + 1 // shift other indices by 1
+        } else {
+            index
+        }
+    }
+
+    fn selection_to_lang(&self, index: usize) -> usize {
+        if self.allow_any {
+            // If "Any" is allowed, the index is shifted back by 1
+            index.saturating_sub(1)
+        } else {
+            index
+        }
+    }
+
+    fn language_names(&self) -> Vec<String> {
+        let mut names = if self.allow_any {
+            vec!["Any".to_string()]
+        } else {
+            vec![]
+        };
+        names.extend(
+            self.programming_languages
+                .iter()
+                .map(|code| code.get_name().to_string()),
+        );
+        names
+    }
+
+    fn language_from_selection(&self, index: usize) -> Option<programming::Code> {
+        if index == 0 && self.allow_any {
+            // If "Any" is selected, return None
+            None
+        } else {
+            // Otherwise, get the programming language from the list
+            self.programming_languages
+                .get(self.selection_to_lang(index))
+                .cloned()
+        }
+    }
+
+    fn selection_from_language(&self, lang: Option<programming::Code>) -> Option<usize> {
+        match lang {
+            Some(code) => match self.programming_languages.iter().position(|&c| c == code) {
+                Some(index) => Some(self.lang_to_selection(index)),
+                None => Some(0),
+            },
+            None => Some(0),
+        }
     }
 
     fn recalculate_rect(&mut self, area: Rect) {
@@ -167,18 +236,16 @@ impl Programming<'_> {
         &mut self,
         event: tui::Event,
         to_ui: Sender<screens::Event>,
-        status: Arc<Mutex<Status>>,
+        _status: Arc<Mutex<Status>>,
     ) -> Result<(), Error> {
         match event {
-            tui::Event::ChangeProgrammingLanguage => {
+            tui::Event::ChangeProgrammingLanguage(programming, allow_any, next) => {
                 info!("Changing programming language");
-                let programming = {
-                    let status = status.lock().unwrap();
-                    status.programming_language()
-                };
-                self.set_programming_languages(
+                self.init(
                     &fs::application::all_programming_languages()?,
                     programming,
+                    allow_any,
+                    next,
                 )
                 .await?;
                 to_ui
@@ -186,7 +253,7 @@ impl Programming<'_> {
                     .await?;
             }
             _ => {
-                info!("Ignoring UI event: {:?}", event);
+                debug!("Ignoring UI event: {:?}", event);
             }
         }
         Ok(())
@@ -205,37 +272,25 @@ impl Programming<'_> {
                 KeyCode::PageDown => self.list_state.select_last(),
                 KeyCode::Char('b') | KeyCode::Esc => {
                     to_ui
-                        .send((Some(screens::Screens::Workshops), tui::Event::LoadWorkshops).into())
+                        .send((Some(Screens::Workshops), tui::Event::LoadWorkshops).into())
                         .await?;
                 }
                 KeyCode::Char('j') | KeyCode::Down => self.list_state.select_next(),
                 KeyCode::Char('k') | KeyCode::Up => self.list_state.select_previous(),
                 KeyCode::Enter => {
+                    // take the event leaving None in its place
+                    let event = self.event.take();
                     if let Some(selected) = self.list_state.selected() {
-                        let programming_language = if selected == 0 {
-                            info!("programming language selected: Any");
-                            None
-                        } else {
-                            match self.programming_languages.get(selected - 1) {
-                                Some(code) => {
-                                    info!("programming language selected: {:?}", code);
-                                    Some(*code)
-                                }
-                                None => {
-                                    info!("No programming language selected");
-                                    None
-                                }
-                            }
-                        };
-                        to_ui
-                            .send(
-                                (
-                                    None,
-                                    tui::Event::SetProgrammingLanguage(programming_language, None),
-                                )
-                                    .into(),
-                            )
-                            .await?;
+                        let programming_language = self.language_from_selection(selected);
+                        let set_programming_language = (
+                            None,
+                            tui::Event::SetProgrammingLanguage(
+                                programming_language,
+                                None, // None, because we don't know if it should be the default
+                                event,
+                            ),
+                        );
+                        to_ui.send(set_programming_language.into()).await?;
                     }
                 }
                 _ => {}
