@@ -4,16 +4,134 @@ use crate::{
     models::workshop,
     Error,
 };
+use semver::Version;
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
 };
-use tracing::info;
+use tokio::process::Command;
+use tracing::{debug, info};
 
 const APPLICATION_PARTS: [&str; 3] = ["io", "libp2p", "workshop"];
 
 pub mod application {
     use super::*;
+
+    /// Try to get the path to the python executable
+    pub async fn find_python_executable<S: AsRef<str>>(min_version: S) -> Result<String, Error> {
+        // parse the python version from the --version output
+        fn parse_version(output: &str) -> Option<Version> {
+            let version_str = output
+                .split_whitespace()
+                .find(|s| s.starts_with("Python"))
+                .and_then(|s| s.strip_prefix("Python"))
+                .or_else(|| {
+                    output
+                        .split_whitespace()
+                        .find(|s| s.chars().all(|c| c.is_ascii_digit() || c == '.'))
+                })?;
+            Version::parse(version_str.trim()).ok()
+        }
+
+        let min_version =
+            Version::parse(min_version.as_ref()).map_err(|_| Error::NoPythonExecutable)?;
+
+        // Common Python executable names
+        let mut candidates = vec!["python3", "python", "py"];
+
+        // Platform-specific candidates
+        #[cfg(target_os = "windows")]
+        {
+            // Windows: Check for Python in common installation paths and registry
+            candidates.extend(vec![
+                "C:\\Python39\\python.exe",
+                "C:\\Python38\\python.exe",
+                "C:\\Program Files\\Python39\\python.exe",
+                "C:\\Program Files\\Python38\\python.exe",
+                "C:\\Users\\%USERNAME%\\AppData\\Local\\Programs\\Python\\Python39\\python.exe",
+                "C:\\Users\\%USERNAME%\\AppData\\Local\\Programs\\Python\\Python38\\python.exe",
+            ]);
+        }
+
+        #[cfg(target_os = "macos")]
+        {
+            // macOS: Check Homebrew, system Python, and pyenv paths
+            candidates.extend(vec![
+                "/usr/local/bin/python3",
+                "/opt/homebrew/bin/python3",
+                "/usr/bin/python3",
+                "/opt/local/bin/python3",
+                "~/.pyenv/shims/python3",
+            ]);
+        }
+
+        #[cfg(target_os = "linux")]
+        {
+            // Linux: Check common distro paths and pyenv
+            candidates.extend(vec![
+                "/usr/bin/python3",
+                "/usr/local/bin/python3",
+                "/bin/python3",
+                "~/.pyenv/shims/python3",
+            ]);
+        }
+
+        // Try each candidate
+        for candidate in candidates.iter() {
+            // On Windows, replace %USERNAME% with actual username
+            #[cfg(target_os = "windows")]
+            let candidate =
+                candidate.replace("%USERNAME%", &std::env::var("USERNAME").unwrap_or_default());
+
+            // Expand tilde (~) for home directory on Unix-like systems
+            #[cfg(any(target_os = "macos", target_os = "linux"))]
+            let candidate = shellexpand::tilde(candidate).to_string();
+
+            // Check if the executable exists and is runnable
+            debug!("Checking Python candidate: {}", candidate);
+            let output = Command::new(&candidate).arg("--version").output().await;
+
+            if let Ok(output) = output {
+                if output.status.success() {
+                    // Verify it's a Python executable by checking version output
+                    let version_output = String::from_utf8_lossy(&output.stdout);
+                    if let Some(version) = parse_version(&version_output) {
+                        if version >= min_version {
+                            info!(
+                                "Found Python executable: {} (version: {})",
+                                candidate, version
+                            );
+                            return Ok(candidate.to_string());
+                        }
+                    } else {
+                        debug!(
+                            "Candidate '{}' did not return a valid Python version",
+                            candidate
+                        );
+                    }
+                }
+            }
+        }
+
+        // Try querying the system for Python (Windows-specific: py launcher)
+        #[cfg(target_os = "windows")]
+        {
+            let output = Command::new("py").arg("-0").output().await;
+            if let Ok(output) = output {
+                if output.status.success() {
+                    let py_output = String::from_utf8_lossy(&output.stdout);
+                    // Parse the output of `py -0` to find the highest Python version
+                    if let Some(line) = py_output.lines().find(|line| line.contains("-3")) {
+                        if let Some(version) = line.split_whitespace().next() {
+                            return Ok(format!("py -{}", version.trim_start_matches('-')));
+                        }
+                    }
+                }
+            }
+        }
+
+        Err(Error::NoPythonExecutable)
+    }
 
     /// Get the application data directory. This works on Windows, macOS, and Linux.
     pub fn data_dir() -> Result<PathBuf, Error> {
@@ -97,7 +215,7 @@ pub mod application {
     pub fn get_all_languages() -> Result<HashMap<spoken::Code, Vec<programming::Code>>, Error> {
         let mut languages: HashMap<spoken::Code, Vec<programming::Code>> = HashMap::new();
         for workshop in all_workshops()?.values() {
-            let workshop_languages = workshop.get_languages();
+            let workshop_languages = workshop.get_all_languages();
             for (spoken_lang, programming_langs) in workshop_languages {
                 languages
                     .entry(*spoken_lang)

@@ -30,7 +30,7 @@ const MAX_LOG_LINES: usize = 10000;
 /// Tui implementation of the UI
 pub struct App {
     /// The receiver from the logger
-    from_logger: Receiver<String>,
+    from_logger: Receiver<(Option<String>, String)>,
     /// The status
     status: Arc<Mutex<Status>>,
     /// The available screens - uses wrapper types with 'static lifetime
@@ -49,9 +49,17 @@ pub struct App {
     command_runner: CommandRunner,
 }
 
+impl Drop for App {
+    fn drop(&mut self) {
+        // cancel the token to stop the run loop
+        self.token.cancel();
+        ratatui::restore();
+    }
+}
+
 impl App {
     /// Create a new UI
-    pub fn new(from_logger: Receiver<String>) -> Result<Self, Error> {
+    pub fn new(from_logger: Receiver<(Option<String>, String)>) -> Result<Self, Error> {
         debug!("Creating UI");
         let (sender, receiver) = tokio::sync::mpsc::channel(1_000_000);
         let command_runner = CommandRunner::new(sender.clone());
@@ -124,6 +132,37 @@ impl App {
         // initialize the input event stream
         let mut reader = EventStream::new();
 
+        // try to get the python executable and minimum version from the status
+        let (py_exe, py_min_ver) = {
+            let status = self
+                .status
+                .lock()
+                .map_err(|e| Error::StatusLock(e.to_string()))?;
+            (
+                status.python_executable().clone(),
+                status.python_minimum_version().to_string(),
+            )
+        };
+
+        // if we don't have the path, try to find it
+        if py_exe.is_none() {
+            let python_executable = fs::application::find_python_executable(py_min_ver).await;
+            if let Ok(python_executable) = python_executable {
+                info!("Setting Python executable: {}", python_executable);
+                {
+                    let mut status = self
+                        .status
+                        .lock()
+                        .map_err(|e| Error::StatusLock(e.to_string()))?;
+                    status.set_python_executable(&python_executable, true);
+                }
+            } else {
+                // did find one so exit with a reasonable error
+                error!("No Python executable found");
+                return Err(Error::NoPythonExecutable);
+            }
+        }
+
         // initialize the state
         let (workshop, lesson) = {
             let status = self
@@ -140,15 +179,24 @@ impl App {
                     .send((Some(Screens::Workshops), tui::Event::LoadWorkshops).into())
                     .await?;
             }
-            (Some(_), None) => {
-                self.sender
-                    .send((Some(Screens::Lessons), tui::Event::LoadLessons).into())
-                    .await?;
-            }
-            (Some(_), Some(_)) => {
-                self.sender
-                    .send((Some(Screens::Lesson), tui::Event::LoadLesson).into())
-                    .await?;
+            (Some(workshop), lesson) => {
+                // re-runs the deps.py check and if it succeeds will drop you back into the lesson
+                let load = if lesson.is_none() {
+                    evt!(Screens::Lessons, tui::Event::LoadLessons)
+                } else {
+                    evt!(Screens::Lesson, tui::Event::LoadLesson)
+                };
+                let hide_log = evt!(None, tui::Event::HideLog(Some(load)));
+                let delay = evt!(
+                    None,
+                    tui::Event::Delay(std::time::Duration::from_secs(2), Some(hide_log),)
+                );
+                let check_deps = evt!(
+                    None,
+                    tui::Event::CheckDeps(workshop.clone(), Some(delay), None,),
+                );
+                let show_log = evt!(None, tui::Event::ShowLog(Some(check_deps)));
+                self.sender.send(show_log.into()).await?;
             }
         }
 
@@ -172,8 +220,8 @@ impl App {
                 }
 
                 // queue up a log message
-                Some(msg) = self.from_logger.recv() => {
-                    self.sender.send((Some(Screens::Log), tui::Event::Log(msg)).into()).await?;
+                Some((emoji, msg)) = self.from_logger.recv() => {
+                    self.sender.send((Some(Screens::Log), tui::Event::Log(emoji, msg)).into()).await?;
                 }
 
                 // get the next event in the queue
@@ -231,6 +279,25 @@ impl App {
                 }
                 tui::Event::ToggleLog => {
                     self.log.fetch_xor(true, Ordering::SeqCst);
+                }
+                tui::Event::ShowLog(next) => {
+                    self.log.store(true, Ordering::SeqCst);
+                    if let Some(next) = next {
+                        to_ui.send(next.into()).await?;
+                    }
+                }
+                tui::Event::HideLog(next) => {
+                    self.log.store(false, Ordering::SeqCst);
+                    if let Some(next) = next {
+                        to_ui.send(next.into()).await?;
+                    }
+                }
+                tui::Event::Delay(duration, next) => {
+                    // send a delay event to the UI
+                    tokio::time::sleep(duration).await;
+                    if let Some(next) = next {
+                        to_ui.send(next.into()).await?;
+                    }
                 }
                 tui::Event::Show(screen) => {
                     info!("Show screen: {}", screen);
@@ -374,27 +441,66 @@ impl App {
                         to_ui.send(n.into()).await?;
                     }
                 }
-                tui::Event::SetWorkshop(workshop) => {
+                tui::Event::SetWorkshop(workshop, all_languages) => {
                     if let Some(workshop) = workshop {
                         info!("Setting workshop: {:?}", workshop);
-                        let (programming_language, spoken_language) = {
+                        let (spoken_language, programming_language) = {
                             let status = self
                                 .status
                                 .lock()
                                 .map_err(|e| Error::StatusLock(e.to_string()))?;
-                            (status.programming_language(), status.spoken_language())
+                            (status.spoken_language(), status.programming_language())
                         };
 
-                        if programming_language.is_none() {
+                        debug!(
+                            "Spoken language: {:?}, Programming language: {:?}",
+                            spoken_language, programming_language
+                        );
+
+                        debug!(
+                            "All languages for workshop {}: {:?}",
+                            workshop, all_languages
+                        );
+
+                        if spoken_language.is_none() {
+                            // this kicks off a cycle of selecting the spoken language, asking
+                            // if they want to set it as the default, and then coming back here
+                            debug!("No spoken language selected");
+
+                            let set_workshop = evt!(
+                                None,
+                                tui::Event::SetWorkshop(
+                                    Some(workshop.clone()),
+                                    all_languages.clone()
+                                )
+                            );
+                            let change_spoken_language = (
+                                Some(Screens::Spoken),
+                                tui::Event::ChangeSpokenLanguage(
+                                    all_languages.clone(),
+                                    None,
+                                    false,
+                                    Some(set_workshop),
+                                ),
+                            );
+
+                            to_ui.send(change_spoken_language.into()).await?;
+                        } else if programming_language.is_none() {
                             // this kicks off a cycle of selecting the programming language, asking
                             // if they want to set it as the default, and then coming back here
                             debug!("No programming language selected");
 
-                            let set_workshop =
-                                evt!(None, tui::Event::SetWorkshop(Some(workshop.clone())));
+                            let set_workshop = evt!(
+                                None,
+                                tui::Event::SetWorkshop(
+                                    Some(workshop.clone()),
+                                    all_languages.clone()
+                                )
+                            );
                             let change_programming_language = (
                                 Some(Screens::Programming),
                                 tui::Event::ChangeProgrammingLanguage(
+                                    all_languages.clone(),
                                     None,
                                     false,
                                     Some(set_workshop),
@@ -402,19 +508,6 @@ impl App {
                             );
 
                             to_ui.send(change_programming_language.into()).await?;
-                        } else if spoken_language.is_none() {
-                            // this kicks off a cycle of selecting the spoken language, asking
-                            // if they want to set it as the default, and then coming back here
-                            debug!("No spoken language selected");
-
-                            let set_workshop =
-                                evt!(None, tui::Event::SetWorkshop(Some(workshop.clone())));
-                            let change_spoken_language = (
-                                Some(Screens::Spoken),
-                                tui::Event::ChangeSpokenLanguage(None, false, Some(set_workshop)),
-                            );
-
-                            to_ui.send(change_spoken_language.into()).await?;
                         } else {
                             // we have both languages selected, so we can proceed with setting the
                             // workshop, initializing the local workshop data and loading the lessons
@@ -427,9 +520,21 @@ impl App {
                                 status.set_workshop(Some(workshop.clone()));
                                 fs::workshops::init_data_dir(&workshop)?;
                             }
-                            to_ui
-                                .send((Some(Screens::Lessons), tui::Event::LoadLessons).into())
-                                .await?;
+                            let load_lessons = evt!(Screens::Lessons, tui::Event::LoadLessons);
+                            let hide_log = evt!(None, tui::Event::HideLog(Some(load_lessons)));
+                            let delay = evt!(
+                                None,
+                                tui::Event::Delay(
+                                    std::time::Duration::from_secs(2),
+                                    Some(hide_log),
+                                )
+                            );
+                            let check_deps = evt!(
+                                None,
+                                tui::Event::CheckDeps(workshop.clone(), Some(delay), None,),
+                            );
+                            let show_log = evt!(None, tui::Event::ShowLog(Some(check_deps)));
+                            to_ui.send(show_log.into()).await?;
                         }
                     } else {
                         debug!("Clearing workshop");
@@ -444,85 +549,6 @@ impl App {
                             .send((Some(Screens::Workshops), tui::Event::LoadWorkshops).into())
                             .await?;
                     }
-
-                    /*
-
-                    // Run dependency check using workshop data (with fallback to defaults)
-                    if let Some(workshop_data) = fs::workshops::load(&workshop) {
-                        info!("Running dependency check for workshop: '{}'", workshop);
-
-                        // Get deps.py path using workshop model (handles defaults automatically)
-                        match workshop_data
-                            .get_deps_script_path(spoken_language, programming_language)
-                        {
-                            Ok(deps_script) => {
-                                info!(
-                                    "Attempting to run dependency script: {}",
-                                    deps_script.display()
-                                );
-                                info!("Script exists: {}", deps_script.exists());
-
-                                // Run dependency check in background
-                                let command_runner = self.command_runner.clone();
-                                let token = self.token.clone();
-                                let sender = to_ui.clone();
-
-                                tokio::spawn(async move {
-                                    match command_runner
-                                        .check_dependencies(&deps_script, &token)
-                                        .await
-                                    {
-                                        Ok(result) => {
-                                            info!(
-                                                "Dependency check completed with exit code: {}",
-                                                result.exit_code
-                                            );
-                                            // Send LoadLessons event after dependency check completes
-                                            let _ = sender
-                                                .send(
-                                                    (
-                                                        Some(Screens::Lessons),
-                                                        tui::Event::LoadLessons,
-                                                    )
-                                                        .into(),
-                                                )
-                                                .await;
-                                        }
-                                        Err(e) => {
-                                            error!("Failed to check dependencies: {}", e);
-                                            // Still proceed to lessons even if dependency check fails
-                                            let _ = sender
-                                                .send(
-                                                    (
-                                                        Some(Screens::Lessons),
-                                                        tui::Event::LoadLessons,
-                                                    )
-                                                        .into(),
-                                                )
-                                                .await;
-                                        }
-                                    }
-                                });
-                            }
-                            Err(e) => {
-                                error!("Failed to get deps script path: {}", e);
-                                // Proceed to lessons even if we can't get the script path
-                                to_ui
-                                    .send(
-                                        (Some(Screens::Lessons), tui::Event::LoadLessons)
-                                            .into(),
-                                    )
-                                    .await?;
-                            }
-                        }
-                    } else {
-                        error!("Failed to load workshop data for: {}", workshop);
-                        // Proceed to lessons even if workshop data loading fails
-                        to_ui
-                            .send((Some(Screens::Lessons), tui::Event::LoadLessons).into())
-                            .await?;
-                    }
-                    */
                 }
                 tui::Event::SetLesson(lesson) => {
                     info!("Lesson set: {:?}", lesson);
@@ -550,28 +576,124 @@ impl App {
                             .await?;
                     }
                 }
-                tui::Event::CommandStarted => {
-                    info!("Command started - showing log screen");
-                    self.log.store(true, Ordering::SeqCst);
-                }
-                tui::Event::CommandCompleted { success } => {
-                    info!("Command completed - success: {}", success);
-                    if success {
-                        // Hide log screen on successful command completion
-                        self.log.store(false, Ordering::SeqCst);
+                tui::Event::CheckDeps(workshop, success, failed) => {
+                    // Run dependency check using workshop data (with fallback to defaults)
+                    if let Some(workshop_data) = fs::workshops::load(&workshop) {
+                        let (programming_language, spoken_language, python_executable) = {
+                            let status = self
+                                .status
+                                .lock()
+                                .map_err(|e| Error::StatusLock(e.to_string()))?;
+                            (
+                                status.programming_language(),
+                                status.spoken_language(),
+                                status.python_executable(),
+                            )
+                        };
+
+                        let py_exe = python_executable.ok_or(Error::NoPythonExecutable)?;
+
+                        info!(
+                            "Running dependency check: {}, {}, {}",
+                            workshop,
+                            languages::spoken_name(spoken_language),
+                            languages::programming_name(programming_language)
+                        );
+
+                        // Get deps.py path using workshop model (handles defaults automatically)
+                        match workshop_data
+                            .get_deps_script_path(spoken_language, programming_language)
+                        {
+                            Ok(deps_script) => {
+                                debug!(
+                                    "Attempting to run dependency script: {}",
+                                    deps_script.display()
+                                );
+                                debug!("Script exists: {}", deps_script.exists());
+
+                                // Run dependency check in background
+                                let command_runner = self.command_runner.clone();
+                                let token = self.token.clone();
+                                let sender = to_ui.clone();
+
+                                tokio::spawn(async move {
+                                    match command_runner
+                                        .check_dependencies(&py_exe, &deps_script, &token)
+                                        .await
+                                    {
+                                        Ok(result) => {
+                                            debug!(
+                                                "Dependency check completed with exit code: {}",
+                                                result.exit_code
+                                            );
+
+                                            let emoji = if result.success {
+                                                Some("🎉".to_string())
+                                            } else {
+                                                Some("😢".to_string())
+                                            };
+                                            let _ = sender
+                                                .send(
+                                                    (
+                                                        Some(Screens::Log),
+                                                        tui::Event::Log(emoji, result.last_line),
+                                                    )
+                                                        .into(),
+                                                )
+                                                .await;
+
+                                            if let Some(success) = success {
+                                                let _ = sender.send(success.into()).await;
+                                            }
+                                        }
+                                        Err(e) => {
+                                            error!("Failed to check dependencies: {}", e);
+                                            if let Some(failed) = failed {
+                                                let _ = sender.send(failed.into()).await;
+                                            }
+                                        }
+                                    }
+                                });
+                            }
+                            Err(e) => {
+                                error!("Failed to get deps script path: {}", e);
+                                if let Some(failed) = failed {
+                                    let _ = to_ui.send(failed.into()).await;
+                                }
+                            }
+                        }
+                    } else {
+                        error!("Failed to load workshop data for: {}", workshop);
+                        if let Some(failed) = failed {
+                            let _ = to_ui.send(failed.into()).await;
+                        }
                     }
-                    // If command failed, leave log screen visible so user can see errors
+                }
+                tui::Event::CommandStarted(command) => {
+                    let emoji = Some("🚀".to_string());
+                    to_ui
+                        .send((Some(Screens::Log), tui::Event::Log(emoji, command)).into())
+                        .await?;
                 }
                 tui::Event::CommandOutput(output) => {
-                    // Forward command output directly to Log screen
+                    // lines can be prefixed with characters that translate into emojis here
+                    // '*' -> ✅
+                    // '!' -> ❌
+                    let (emoji, output) = if output.starts_with('*') {
+                        (Some("✅".to_string()), output[2..].to_string())
+                    } else if output.starts_with('!') {
+                        (Some("❌".to_string()), output[2..].to_string())
+                    } else {
+                        (None, output)
+                    };
                     to_ui
-                        .send((Some(Screens::Log), tui::Event::Log(output)).into())
+                        .send((Some(Screens::Log), tui::Event::Log(emoji, output)).into())
                         .await?;
                 }
                 tui::Event::CheckSolution => {
                     info!("Check solution");
                     // Get current status information
-                    let (spoken, programming, workshop, lesson) = {
+                    let (spoken, programming, workshop, lesson, python_executable) = {
                         let status = status
                             .lock()
                             .map_err(|e| Error::StatusLock(e.to_string()))?;
@@ -580,8 +702,11 @@ impl App {
                             status.programming_language(),
                             status.workshop(),
                             status.lesson(),
+                            status.python_executable(),
                         )
                     };
+
+                    let py_exe = python_executable.ok_or(Error::NoPythonExecutable)?;
 
                     // Check if we have required workshop and lesson
                     if let (Some(workshop), Some(lesson)) = (workshop, lesson) {
@@ -603,7 +728,7 @@ impl App {
 
                                     tokio::spawn(async move {
                                         match command_runner
-                                            .check_solution(&lesson_dir, &token)
+                                            .check_solution(&py_exe, &lesson_dir, &token)
                                             .await
                                         {
                                             Ok(result) => {

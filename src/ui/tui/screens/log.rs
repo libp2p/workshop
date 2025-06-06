@@ -165,8 +165,13 @@ impl Log<'_> {
         _status: Arc<Mutex<Status>>,
     ) -> Result<(), Error> {
         match event {
-            tui::Event::Log(msg) => {
-                self.add_message(msg);
+            tui::Event::Log(emoji, msg) => {
+                let m = if let Some(emoji) = emoji {
+                    format!("{emoji} {msg}")
+                } else {
+                    format!("   {msg}")
+                };
+                self.add_message(m);
             }
             _ => {
                 info!("Ignoring UI event: {:?}", event);

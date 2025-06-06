@@ -41,4 +41,8 @@ pub enum Error {
     /// Project directories error
     #[error("Project directories error: {0}")]
     ProjectDirs(String),
+
+    /// No Python executable found
+    #[error("No Python executable found")]
+    NoPythonExecutable,
 }

@@ -1,5 +1,4 @@
 use crate::{
-    fs,
     languages::spoken,
     ui::tui::{self, screens, Evt, Screen},
     Error, Status,
@@ -235,15 +234,12 @@ impl Spoken<'_> {
         _status: Arc<Mutex<Status>>,
     ) -> Result<(), Error> {
         match event {
-            tui::Event::ChangeSpokenLanguage(spoken, allow_any, next) => {
+            tui::Event::ChangeSpokenLanguage(all_languages, spoken, allow_any, next) => {
+                let mut spoken_languages = all_languages.keys().cloned().collect::<Vec<_>>();
+                spoken_languages.sort();
                 info!("Changing spoken language");
-                self.init(
-                    &fs::application::all_spoken_languages()?,
-                    spoken,
-                    allow_any,
-                    next,
-                )
-                .await?;
+                self.init(&spoken_languages, spoken, allow_any, next)
+                    .await?;
                 to_ui
                     .send((None, tui::Event::Show(screens::Screens::Spoken)).into())
                     .await?;

@@ -8,18 +8,18 @@ def check_command(command, min_version=None):
         # Check if command exists
         result = subprocess.run([command, "--version"], capture_output=True, text=True)
         if result.returncode != 0:
-            print(f"❌ {command} is not installed")
+            print(f"! {command} is not installed")
             return False
         
         # If a minimum version is specified, check it (simplified version check)
         if min_version and min_version not in result.stdout:
-            print(f"❌ {command} version {min_version} or higher is required")
+            print(f"! {command} version {min_version} or higher is required")
             return False
         
-        print(f"✅ {command} is installed")
+        print(f"* {command} is installed")
         return True
     except FileNotFoundError:
-        print(f"❌ {command} is not installed")
+        print(f"! {command} is not installed")
         return False
 
 def main():
@@ -27,7 +27,7 @@ def main():
     all_dependencies_met = True
     
     # Check if rust is installed
-    if not check_command("python3", "3.9"):
+    if not check_command("python3"):
         all_dependencies_met = False
     
     # Check if docker is installed
@@ -42,18 +42,18 @@ def main():
         if docker_compose_path == shutil.which("docker"):
             result = subprocess.run(["docker", "compose", "version"], capture_output=True, text=True)
             if result.returncode != 0:
-                print("❌ docker compose plugin is not installed")
+                print("! docker compose plugin is not installed")
                 all_dependencies_met = False
             else:
-                print("✅ docker compose is installed")
+                print("* docker compose is installed")
         else:
-            print("✅ docker-compose is installed")
+            print("* docker-compose is installed")
     else:
-        print("❌ docker-compose is not installed")
+        print("! docker-compose is not installed")
         all_dependencies_met = False
     
     if all_dependencies_met:
-        print("\nAll dependencies are met! 🎉")
+        print("\nAll dependencies are met!")
         sys.exit(0)
     else:
         print("\nSome dependencies are missing. Please install them before continuing.")

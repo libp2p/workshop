@@ -407,7 +407,7 @@ impl Lessons<'_> {
                 KeyCode::Char('k') | KeyCode::Char('K') | KeyCode::Up => self.prev().await?,
                 KeyCode::Char('b') | KeyCode::Esc => {
                     to_ui
-                        .send((None, tui::Event::SetWorkshop(None)).into())
+                        .send((None, tui::Event::SetWorkshop(None, HashMap::default())).into())
                         .await?;
                 }
                 KeyCode::Tab => {

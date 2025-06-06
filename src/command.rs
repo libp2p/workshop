@@ -1,10 +1,5 @@
-use crate::{
-    evt,
-    ui::tui::{
-        events::Event as TuiEvent,
-        screens::{self, Screens},
-    },
-};
+use crate::ui::tui::{self, screens};
+use std::path::Path;
 use tokio::{
     io::{AsyncBufReadExt, BufReader},
     process::Command,
@@ -18,6 +13,7 @@ use tracing::error;
 pub struct CommandResult {
     pub success: bool,
     pub exit_code: i32,
+    pub last_line: String,
 }
 
 /// Generic command runner that sends output to the Log screen
@@ -46,11 +42,6 @@ impl CommandRunner {
         working_dir: Option<&std::path::Path>,
         token: &CancellationToken,
     ) -> Result<CommandResult, Box<dyn std::error::Error + Send + Sync>> {
-        // Show Log screen when command starts
-        self.event_sender
-            .send(evt!(Screens::Log, TuiEvent::CommandStarted).into())
-            .await?;
-
         // Build command
         let mut command = Command::new(cmd);
         command.args(args);
@@ -60,9 +51,9 @@ impl CommandRunner {
         }
 
         // Send command info to log
-        let cmd_info = format!("Running: {} {}", cmd, args.join(" "));
+        let cmd_info = format!("{} {}", cmd, args.join(" "));
         self.event_sender
-            .send(evt!(Screens::Log, TuiEvent::CommandOutput(cmd_info)).into())
+            .send((None, tui::Event::CommandStarted(cmd_info.clone())).into())
             .await?;
 
         // Spawn process with piped stdout/stderr
@@ -84,6 +75,8 @@ impl CommandRunner {
         // Stream output until process completes or is cancelled
         let mut stdout_finished = false;
         let mut stderr_finished = false;
+        let mut stdout_line: Option<String> = None;
+        let mut stderr_line: Option<String> = None;
 
         let exit_status = loop {
             tokio::select! {
@@ -97,13 +90,15 @@ impl CommandRunner {
                 line = stdout_lines.next_line(), if !stdout_finished => {
                     match line {
                         Ok(Some(line)) => {
-                            // Send each stdout line directly to Log screen (bypassing env filter)
-                            self.event_sender
-                                .send(evt!(
-                                    Screens::Log,
-                                    TuiEvent::CommandOutput(line)
-                                ).into())
-                                .await?;
+                            if let Some(prev_line) = stdout_line.take() {
+                                self.event_sender
+                                    .send((
+                                        None,
+                                        tui::Event::CommandOutput(prev_line)
+                                    ).into())
+                                    .await?;
+                            }
+                            stdout_line = Some(line);
                         }
                         Ok(None) => {
                             // EOF on stdout
@@ -120,8 +115,15 @@ impl CommandRunner {
                 line = stderr_lines.next_line(), if !stderr_finished => {
                     match line {
                         Ok(Some(line)) => {
-                            // Log each stderr line using error!() macro
-                            error!("{}", line);
+                            if let Some(prev_line) = stderr_line.take() {
+                                self.event_sender
+                                    .send((
+                                        None,
+                                        tui::Event::CommandOutput(prev_line)
+                                    ).into())
+                                    .await?;
+                            }
+                            stderr_line = Some(line);
                         }
                         Ok(None) => {
                             // EOF on stderr
@@ -143,13 +145,13 @@ impl CommandRunner {
 
         let success = exit_status.success();
         let exit_code = exit_status.code().unwrap_or(-1);
+        let last_line = stdout_line.unwrap_or_default();
 
-        let result = CommandResult { success, exit_code };
-
-        // Send completion event
-        self.event_sender
-            .send(evt!(Screens::Log, TuiEvent::CommandCompleted { success }).into())
-            .await?;
+        let result = CommandResult {
+            success,
+            exit_code,
+            last_line: last_line.clone(),
+        };
 
         Ok(result)
     }
@@ -158,7 +160,8 @@ impl CommandRunner {
     /// This is a convenience method for lesson solution checking
     pub async fn check_solution(
         &self,
-        lesson_dir: &std::path::Path,
+        python_executable: &str,
+        lesson_dir: &Path,
         token: &CancellationToken,
     ) -> Result<CommandResult, Box<dyn std::error::Error + Send + Sync>> {
         // Run docker-compose up -d
@@ -171,14 +174,20 @@ impl CommandRunner {
         }
 
         // Run python check.py
-        self.run_command("python", &["check.py"], Some(lesson_dir), token)
-            .await
+        self.run_command(
+            python_executable.as_ref(),
+            &["check.py"],
+            Some(lesson_dir),
+            token,
+        )
+        .await
     }
 
     /// Run deps.py script for dependency checking
     pub async fn check_dependencies(
         &self,
-        deps_script: &std::path::Path,
+        python_executable: &str,
+        deps_script: &Path,
         token: &CancellationToken,
     ) -> Result<CommandResult, Box<dyn std::error::Error + Send + Sync>> {
         let script_dir = deps_script
@@ -186,7 +195,7 @@ impl CommandRunner {
             .unwrap_or_else(|| std::path::Path::new("."));
 
         self.run_command(
-            "python",
+            python_executable.as_ref(),
             &[deps_script.to_str().unwrap()],
             Some(script_dir),
             token,

@@ -186,7 +186,7 @@ impl Workshops<'_> {
         if let Some(workshop_key) = self.get_selected_workshop_key() {
             if let Some(workshop_data) = self.workshops.get(&workshop_key) {
                 let workshop = workshop_data.get_metadata(self.spoken_language).await?;
-                let languages = workshop_data.get_languages().clone();
+                let languages = workshop_data.get_all_languages().clone();
                 let description = workshop_data
                     .get_description(self.spoken_language)
                     .await
@@ -479,7 +479,7 @@ impl Workshops<'_> {
         let title = Line::from(vec![
             Span::styled("─", Style::default().fg(Color::DarkGray)),
             Span::styled(
-                "/ j,k scroll / ⇥ focus / ↵ select / w homepage / l license / s spoken / p programming / q quit /",
+                "/ j,k scroll / ⇥ focus / ↵ select / w homepage / l license / f filter / q quit /",
                 Style::default().fg(Color::White),
             ),
         ]);
@@ -559,7 +559,7 @@ impl Workshops<'_> {
         &mut self,
         event: event::Event,
         to_ui: Sender<screens::Event>,
-        _status: Arc<Mutex<Status>>,
+        status: Arc<Mutex<Status>>,
     ) -> Result<(), Error> {
         if let event::Event::Key(key) = event {
             match key.code {
@@ -583,19 +583,36 @@ impl Workshops<'_> {
                         debug!("No selected workshop");
                     }
                 }
-                KeyCode::Char('p') | KeyCode::Char('P') => {
+                KeyCode::Char('f') | KeyCode::Char('F') => {
+                    // we're filtering workshops based on spoken and programming languages
+                    // clear out the local status spoken and programming languages so we can
+                    // set them from all valid selections
+                    {
+                        let mut status = status
+                            .lock()
+                            .map_err(|e| Error::StatusLock(e.to_string()))?;
+                        status.set_spoken_language(None, false);
+                        status.set_programming_language(None, false);
+                    }
+                    let all_languages = fs::application::get_all_languages()?;
                     let set_workshop = evt!(Screens::Workshops, tui::Event::LoadWorkshops);
-                    let change_programming_language = (
-                        Some(Screens::Programming),
-                        tui::Event::ChangeProgrammingLanguage(None, true, Some(set_workshop)),
+                    let change_programming_language = evt!(
+                        Screens::Programming,
+                        tui::Event::ChangeProgrammingLanguage(
+                            all_languages.clone(),
+                            None,
+                            true,
+                            Some(set_workshop)
+                        ),
                     );
-                    to_ui.send(change_programming_language.into()).await?;
-                }
-                KeyCode::Char('s') | KeyCode::Char('S') => {
-                    let set_workshop = evt!(Screens::Workshops, tui::Event::LoadWorkshops);
-                    let change_spoken_language = (
-                        Some(Screens::Spoken),
-                        tui::Event::ChangeSpokenLanguage(None, true, Some(set_workshop)),
+                    let change_spoken_language = evt!(
+                        Screens::Spoken,
+                        tui::Event::ChangeSpokenLanguage(
+                            all_languages.clone(),
+                            None,
+                            true,
+                            Some(change_programming_language),
+                        ),
                     );
                     to_ui.send(change_spoken_language.into()).await?;
                 }
@@ -627,15 +644,33 @@ impl Workshops<'_> {
                     }
                 }
                 KeyCode::Enter => {
-                    to_ui
-                        .send(
-                            (
-                                None,
-                                tui::Event::SetWorkshop(self.get_selected_workshop_key()),
-                            )
-                                .into(),
-                        )
-                        .await?;
+                    // we're choosing a workshop so clear out the local status spoken and
+                    // programming languages so we set them from the valid selections associated
+                    // with the selected workshop
+                    {
+                        let mut status = status
+                            .lock()
+                            .map_err(|e| Error::StatusLock(e.to_string()))?;
+                        status.set_spoken_language(None, false);
+                        status.set_programming_language(None, false);
+                    }
+                    if let Some(workshop_key) = self.get_selected_workshop_key() {
+                        if let Some(workshop_data) = self.workshops.get(&workshop_key) {
+                            let all_languages = workshop_data.get_all_languages().clone();
+                            to_ui
+                                .send(
+                                    (
+                                        None,
+                                        tui::Event::SetWorkshop(
+                                            self.get_selected_workshop_key(),
+                                            all_languages,
+                                        ),
+                                    )
+                                        .into(),
+                                )
+                                .await?;
+                        }
+                    }
                 }
                 _ => {}
             }

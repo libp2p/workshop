@@ -7,10 +7,23 @@ use serde::{Deserialize, Serialize};
 use tracing::info;
 
 /// Represents the application configuration
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Config {
+    python_minumum_version: String,
+    python_executable: Option<String>,
     spoken_language: Option<spoken::Code>,
     programming_language: Option<programming::Code>,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Config {
+            python_minumum_version: "3.10".to_string(),
+            python_executable: None,
+            spoken_language: None,
+            programming_language: None,
+        }
+    }
 }
 
 impl Config {
@@ -37,6 +50,16 @@ impl Config {
         Ok(())
     }
 
+    /// Get the minimum required Python version
+    pub fn python_minimum_version(&self) -> &str {
+        &self.python_minumum_version
+    }
+
+    /// Get the preferred Python executable
+    pub fn python_executable(&self) -> Option<String> {
+        self.python_executable.clone()
+    }
+
     /// Get the preferred spoken language
     pub fn spoken_language(&self) -> Option<spoken::Code> {
         self.spoken_language
@@ -45,6 +68,11 @@ impl Config {
     /// Get the preferred programming language
     pub fn programming_language(&self) -> Option<programming::Code> {
         self.programming_language
+    }
+
+    /// Set the preferred Python executable
+    pub fn set_python_executable(&mut self, python_executable: &str) {
+        self.python_executable = Some(python_executable.to_string());
     }
 
     /// Set the spoken language

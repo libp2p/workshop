@@ -1,5 +1,4 @@
 use crate::{
-    fs,
     languages::programming,
     ui::tui::{
         self,
@@ -236,21 +235,49 @@ impl Programming<'_> {
         &mut self,
         event: tui::Event,
         to_ui: Sender<screens::Event>,
-        _status: Arc<Mutex<Status>>,
+        status: Arc<Mutex<Status>>,
     ) -> Result<(), Error> {
         match event {
-            tui::Event::ChangeProgrammingLanguage(programming, allow_any, next) => {
-                info!("Changing programming language");
-                self.init(
-                    &fs::application::all_programming_languages()?,
-                    programming,
-                    allow_any,
-                    next,
-                )
-                .await?;
-                to_ui
-                    .send((None, tui::Event::Show(screens::Screens::Programming)).into())
-                    .await?;
+            tui::Event::ChangeProgrammingLanguage(all_languages, programming, allow_any, next) => {
+                let spoken_language = {
+                    let status = status
+                        .lock()
+                        .map_err(|e| Error::StatusLock(e.to_string()))?;
+                    status.spoken_language()
+                };
+                match spoken_language {
+                    Some(spoken_language) => {
+                        if let Some(programming_languages) = all_languages.get(&spoken_language) {
+                            info!("Changing programming language");
+                            self.init(programming_languages, programming, allow_any, next)
+                                .await?;
+                            to_ui
+                                .send(
+                                    (None, tui::Event::Show(screens::Screens::Programming)).into(),
+                                )
+                                .await?;
+                        } else {
+                            debug!(
+                                "No programming languages found for spoken language: {:?}",
+                                spoken_language
+                            );
+                        }
+                    }
+                    None => {
+                        // the user selected "Any" spoken language so all programming languages are
+                        // possible
+                        let mut programming_languages: Vec<programming::Code> =
+                            all_languages.values().flatten().cloned().collect();
+                        programming_languages.sort();
+                        programming_languages.dedup();
+                        info!("Changing programming language");
+                        self.init(&programming_languages, programming, allow_any, next)
+                            .await?;
+                        to_ui
+                            .send((None, tui::Event::Show(screens::Screens::Programming)).into())
+                            .await?;
+                    }
+                }
             }
             _ => {
                 debug!("Ignoring UI event: {:?}", event);

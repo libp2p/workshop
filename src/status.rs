@@ -12,6 +12,7 @@ use tracing::info;
 /// from the Config object when first created.
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct Status {
+    python_executable: Option<String>,
     spoken_language: Option<spoken::Code>,
     programming_language: Option<programming::Code>,
     workshop: Option<String>,
@@ -35,6 +36,7 @@ impl Status {
 
         // otherwise, create the status
         Ok(Status {
+            python_executable: config.python_executable(),
             spoken_language: config.spoken_language(),
             programming_language: config.programming_language(),
             workshop: None,
@@ -56,6 +58,16 @@ impl Status {
         Ok(())
     }
 
+    /// Get the minimum required Python version
+    pub fn python_minimum_version(&self) -> &str {
+        self.config.python_minimum_version()
+    }
+
+    /// Get the preferred Python executable
+    pub fn python_executable(&self) -> Option<String> {
+        self.python_executable.clone()
+    }
+
     /// Get the preferred spoken language
     pub fn spoken_language(&self) -> Option<spoken::Code> {
         self.spoken_language
@@ -74,6 +86,14 @@ impl Status {
     /// Get the selected lesson
     pub fn lesson(&self) -> Option<String> {
         self.lesson.clone()
+    }
+
+    /// Set the preferred Python executable with optional default
+    pub fn set_python_executable(&mut self, python_executable: &str, default: bool) {
+        self.python_executable = Some(python_executable.to_string());
+        if default {
+            self.config.set_python_executable(python_executable);
+        }
     }
 
     /// Set the spoken language with optional default

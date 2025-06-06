@@ -22,7 +22,7 @@ thread_local! {
 
 // Custom tracing layer to send log events over mpsc
 struct MpscLayer {
-    sender: Sender<String>,
+    sender: Sender<(Option<String>, String)>,
     file: Mutex<Option<File>>,
 }
 
@@ -58,7 +58,7 @@ where
         if let Some(span) = ctx.span(id) {
             let indent = INDENT_LEVEL.with(|l| "  ".repeat(*l.borrow()));
             let name = span.name();
-            let msg = format!("{}Entering: {}", indent, name);
+            let msg = format!("{indent}{name}");
             // if a file is provided, write the log message to it
             if let Ok(mut guard) = self.file.lock() {
                 if let Some(file) = guard.as_mut() {
@@ -66,7 +66,7 @@ where
                     let _ = file.flush();
                 }
             }
-            let _ = self.sender.try_send(msg);
+            let _ = self.sender.try_send((None, msg));
         }
     }
 
@@ -87,13 +87,13 @@ where
         let level = *event.metadata().level();
         let message = visitor.message.unwrap_or_default();
         let emoji = match level {
-            tracing::Level::ERROR => "❗ ",
-            tracing::Level::WARN => "⚠️ ",
-            tracing::Level::INFO => "",
-            tracing::Level::DEBUG => "",
-            tracing::Level::TRACE => "",
+            tracing::Level::ERROR => Some("❗".to_string()),
+            tracing::Level::WARN => Some("⚠️".to_string()),
+            tracing::Level::INFO => None,
+            tracing::Level::DEBUG => None,
+            tracing::Level::TRACE => None,
         };
-        let msg = format!("{indent}{emoji} {message}");
+        let msg = format!("{indent}{message}");
 
         // if a file is provided, write the log message to it
         if let Ok(mut guard) = self.file.lock() {
@@ -104,7 +104,7 @@ where
         }
 
         // send the log message over the mpsc channel
-        let _ = self.sender.try_send(msg);
+        let _ = self.sender.try_send((emoji, msg));
     }
 }
 
@@ -114,7 +114,9 @@ pub struct Log;
 
 impl Log {
     /// Starts the logger and returns the task handle and receiver for the log messages.
-    pub fn init<T: AsRef<Path>>(log: Option<T>) -> Result<Receiver<String>, Error> {
+    pub fn init<T: AsRef<Path>>(
+        log: Option<T>,
+    ) -> Result<Receiver<(Option<String>, String)>, Error> {
         let (sender, receiver) = mpsc::channel(16);
         let file = if let Some(path) = log {
             Mutex::new(Some(

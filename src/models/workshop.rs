@@ -103,7 +103,7 @@ impl WorkshopData {
     }
 
     /// returns the mapping of spoken languages to programming languages
-    pub fn get_languages(&self) -> &HashMap<spoken::Code, Vec<programming::Code>> {
+    pub fn get_all_languages(&self) -> &HashMap<spoken::Code, Vec<programming::Code>> {
         &self.languages
     }
 
