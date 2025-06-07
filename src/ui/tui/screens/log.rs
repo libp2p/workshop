@@ -61,7 +61,7 @@ impl Log<'_> {
     /// Create a new log Screen
     pub fn new(max_log: usize) -> Self {
         let mut st = ScrollLog::default();
-        st.scroll_bottom();
+        st.scroll_newest();
         Self {
             log: VecDeque::default(),
             max_log,
@@ -171,10 +171,10 @@ impl Log<'_> {
     ) -> Result<(), Error> {
         if let event::Event::Key(key) = event {
             match key.code {
-                KeyCode::PageUp => self.st.scroll_top(),
-                KeyCode::PageDown => self.st.scroll_bottom(),
-                KeyCode::Char('j') | KeyCode::Char('J') | KeyCode::Down => self.st.scroll_down(),
-                KeyCode::Char('k') | KeyCode::Char('K') | KeyCode::Up => self.st.scroll_up(),
+                KeyCode::PageUp => self.st.scroll_oldest(),
+                KeyCode::PageDown => self.st.scroll_newest(),
+                KeyCode::Char('j') | KeyCode::Char('J') | KeyCode::Down => self.st.scroll_newer(),
+                KeyCode::Char('k') | KeyCode::Char('K') | KeyCode::Up => self.st.scroll_older(),
                 KeyCode::Char('`') => {
                     info!("input event: Hide Log");
                     to_ui.send((None, tui::Event::ToggleLog).into()).await?

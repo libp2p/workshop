@@ -12,22 +12,27 @@ use textwrap;
 
 #[derive(Clone, Debug, Default)]
 pub enum Scroll {
-    #[default]
-    Top,
-    MaybeTop(usize),
+    /// Show oldest messages (at top of screen)
+    Oldest,
+    /// Maybe scroll to oldest messages
+    MaybeOldest(usize),
+    /// Fixed scroll offset from newest
     Offset(usize),
-    MaybeBottom(usize),
-    Bottom,
+    /// Maybe scroll to newest messages
+    MaybeNewest(usize),
+    /// Show newest messages (at bottom of screen) - default for logs
+    #[default]
+    Newest,
 }
 
 impl fmt::Display for Scroll {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Scroll::Top => write!(f, "Top"),
-            Scroll::MaybeTop(offset) => write!(f, "MaybeTop({})", offset),
+            Scroll::Oldest => write!(f, "Oldest"),
+            Scroll::MaybeOldest(offset) => write!(f, "MaybeOldest({})", offset),
             Scroll::Offset(offset) => write!(f, "Offset({})", offset),
-            Scroll::MaybeBottom(offset) => write!(f, "MaybeBottom({})", offset),
-            Scroll::Bottom => write!(f, "Bottom"),
+            Scroll::MaybeNewest(offset) => write!(f, "MaybeNewest({})", offset),
+            Scroll::Newest => write!(f, "Newest"),
         }
     }
 }
@@ -73,37 +78,41 @@ impl<'a> ScrollLog<'a> {
         self.window_lines
     }
 
-    /// Scroll to the top
-    pub fn scroll_top(&mut self) {
-        self.scroll = Scroll::Top;
+    /// Scroll to the oldest messages
+    pub fn scroll_oldest(&mut self) {
+        self.scroll = Scroll::Oldest;
     }
 
-    /// Scroll to the bottom
-    pub fn scroll_bottom(&mut self) {
-        self.scroll = Scroll::Bottom;
+    /// Scroll to the newest messages
+    pub fn scroll_newest(&mut self) {
+        self.scroll = Scroll::Newest;
     }
 
-    /// Scroll up
-    pub fn scroll_up(&mut self) {
+    /// Scroll toward older messages
+    pub fn scroll_older(&mut self) {
         match self.scroll {
-            Scroll::Offset(offset) => {
-                self.scroll = Scroll::MaybeTop(offset.saturating_sub(1));
+            Scroll::Newest => {
+                // Start scrolling toward older messages from newest (if there's room)
+                self.scroll = Scroll::MaybeOldest(1);
             }
-            Scroll::Bottom => {
-                self.scroll = Scroll::MaybeTop(self.lines.saturating_sub(self.window_lines + 1));
+            Scroll::Offset(offset) => {
+                // Continue scrolling toward older messages (increasing offset from newest)
+                self.scroll = Scroll::MaybeOldest(offset.saturating_add(1));
             }
             _ => {}
         }
     }
 
-    /// Scroll down
-    pub fn scroll_down(&mut self) {
+    /// Scroll toward newer messages
+    pub fn scroll_newer(&mut self) {
         match self.scroll {
-            Scroll::Top => {
-                self.scroll = Scroll::MaybeBottom(1);
+            Scroll::Oldest => {
+                // Start scrolling toward newer messages from oldest
+                self.scroll = Scroll::MaybeNewest(1);
             }
             Scroll::Offset(offset) => {
-                self.scroll = Scroll::MaybeBottom(offset.saturating_add(1));
+                // Continue scrolling toward newer messages (decreasing offset from newest)
+                self.scroll = Scroll::MaybeNewest(offset.saturating_sub(1));
             }
             _ => {}
         }
@@ -152,42 +161,83 @@ impl StatefulWidget for &mut ScrollLog<'_> {
         // get the lines of the render area
         self.window_lines = inner_area.height as usize;
 
-        // figure out the scroll offset
-        let scroll_offset = match self.scroll {
-            Scroll::Top => 0,
-            Scroll::MaybeTop(offset) => {
+        // figure out the scroll offset (from the end for bottom-up display)
+        let scroll_offset_from_end = match self.scroll {
+            Scroll::Oldest => {
+                // Show oldest messages (from beginning of all_lines)
+                if self.lines <= self.window_lines {
+                    0 // Show all lines if they fit
+                } else {
+                    self.lines - self.window_lines // Skip newer lines to show oldest
+                }
+            }
+            Scroll::MaybeOldest(offset) => {
+                let max_offset = if self.lines > self.window_lines {
+                    self.lines - self.window_lines
+                } else {
+                    0
+                };
+                if offset <= max_offset {
+                    self.scroll = Scroll::Offset(offset);
+                    offset
+                } else {
+                    self.scroll = Scroll::Oldest;
+                    max_offset
+                }
+            }
+            Scroll::Offset(offset) => {
+                let max_offset = if self.lines > self.window_lines {
+                    self.lines - self.window_lines
+                } else {
+                    0
+                };
+                offset.min(max_offset)
+            }
+            Scroll::MaybeNewest(offset) => {
                 if offset > 0 {
                     self.scroll = Scroll::Offset(offset);
                     offset
                 } else {
-                    self.scroll = Scroll::Top;
+                    self.scroll = Scroll::Newest;
                     0
                 }
             }
-            Scroll::Offset(offset) => offset,
-            Scroll::MaybeBottom(offset) => {
-                if offset < self.lines.saturating_sub(self.window_lines) {
-                    self.scroll = Scroll::Offset(offset);
-                    offset
-                } else {
-                    self.scroll = Scroll::Bottom;
-                    self.lines.saturating_sub(self.window_lines)
-                }
-            }
-            Scroll::Bottom => self.lines.saturating_sub(self.window_lines),
+            Scroll::Newest => 0, // Show newest messages (no offset from end)
         };
 
-        let start_line = scroll_offset;
-        let end_line = scroll_offset
-            .saturating_add(self.window_lines)
-            .min(self.lines);
+        // Calculate which lines to show (from the end for bottom-up)
+        let start_line = if self.lines > self.window_lines {
+            self.lines - self.window_lines - scroll_offset_from_end
+        } else {
+            0
+        };
+        let end_line = start_line.saturating_add(self.window_lines).min(self.lines);
 
-        let items: Vec<Line> = all_lines
+        // Get the selected lines
+        let selected_lines: Vec<String> = all_lines
             .iter()
             .skip(start_line)
             .take(end_line - start_line)
-            .map(|line| Line::from(line.clone()))
+            .cloned()
             .collect();
+
+        // For bottom-up rendering, we need to pad with empty lines at the top
+        // if we have fewer lines than the window height
+        let mut items: Vec<Line> = Vec::new();
+        
+        // Add empty lines at the top to push content to bottom
+        let lines_to_render = selected_lines.len();
+        if lines_to_render < self.window_lines {
+            let empty_lines_needed = self.window_lines - lines_to_render;
+            for _ in 0..empty_lines_needed {
+                items.push(Line::from(""));
+            }
+        }
+        
+        // Add the actual log lines
+        for line in selected_lines {
+            items.push(Line::from(line));
+        }
 
         let mut scrollbar_area = area;
 
@@ -208,7 +258,7 @@ impl StatefulWidget for &mut ScrollLog<'_> {
         if self.lines > self.window_lines {
             let mut scrollbar_state =
                 ScrollbarState::new(self.lines.saturating_sub(self.window_lines))
-                    .position(scroll_offset)
+                    .position(scroll_offset_from_end)
                     .viewport_content_length(self.window_lines);
             let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
                 .begin_symbol(Some("↑"))
