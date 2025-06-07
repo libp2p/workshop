@@ -198,27 +198,19 @@ impl Workshops<'_> {
                 let license = workshop_data.get_license().await?;
 
                 // update the scroll boxes
-                let mut metadata = String::new();
-                metadata.push_str("Authors: \n");
-                metadata.push_str(
-                    &workshop
+                let metadata = format!(
+                    "Authors: {}\nCopyright: {}\nLicense: {}\nHomepage: {}\nDifficulty: {}\nLanguages:\n{}",
+                    workshop
                         .authors
                         .iter()
                         .map(|a| format!(" - {a}"))
                         .collect::<Vec<_>>()
                         .join("\n"),
-                );
-                metadata.push_str("\nCopyright: ");
-                metadata.push_str(&workshop.copyright);
-                metadata.push_str("\nLicense: ");
-                metadata.push_str(&workshop.license);
-                metadata.push_str("\nHomepage: ");
-                metadata.push_str(&workshop.homepage);
-                metadata.push_str("\nDifficulty: ");
-                metadata.push_str(&workshop.difficulty);
-                metadata.push_str("\nLanguages:\n");
-                metadata.push_str(
-                    &languages
+                    workshop.copyright,
+                    workshop.license,
+                    workshop.homepage,
+                    workshop.difficulty,
+                    languages
                         .iter()
                         .map(|(spoken_lang, programming_langs)| {
                             format!(

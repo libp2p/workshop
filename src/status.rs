@@ -64,8 +64,8 @@ impl Status {
     }
 
     /// Get the preferred Python executable
-    pub fn python_executable(&self) -> Option<String> {
-        self.python_executable.clone()
+    pub fn python_executable(&self) -> Option<&str> {
+        self.python_executable.as_deref()
     }
 
     /// Get the preferred spoken language
@@ -79,13 +79,13 @@ impl Status {
     }
 
     /// Get the selected workshop
-    pub fn workshop(&self) -> Option<String> {
-        self.workshop.clone()
+    pub fn workshop(&self) -> Option<&str> {
+        self.workshop.as_deref()
     }
 
     /// Get the selected lesson
-    pub fn lesson(&self) -> Option<String> {
-        self.lesson.clone()
+    pub fn lesson(&self) -> Option<&str> {
+        self.lesson.as_deref()
     }
 
     /// Set the preferred Python executable with optional default

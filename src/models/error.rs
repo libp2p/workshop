@@ -54,13 +54,13 @@ pub enum Error {
     #[error("Workshop data spoken dir not found for {0}")]
     WorkshopDataSpokenDirNotFound(String),
 
-    /// Lesson metadata not found
-    #[error("Lesson metadata not found")]
-    LessonMetadataFileMissing,
+    /// Workshop data directory not found
+    #[error("Workshop data directory not found")]
+    WorkshopDataDirNotFound,
 
-    /// Lesson text not found
-    #[error("Lesson text not found")]
-    LessonTextFileMissing,
+    /// No workshop specified
+    #[error("No workshop specified")]
+    NoWorkshopSpecified,
 
     /// No programming language specified
     #[error("No programming language specified")]
@@ -74,7 +74,19 @@ pub enum Error {
     #[error("Lesson data directory not found")]
     LessonDataDirNotFound,
 
-    /// Workshop data directory not found
-    #[error("Workshop data directory not found")]
-    WorkshopDataDirNotFound,
+    /// Lesson metadata not found
+    #[error("Lesson metadata not found")]
+    LessonMetadataFileMissing,
+
+    /// Lesson text not found
+    #[error("Lesson text not found")]
+    LessonTextFileMissing,
+
+    /// No lesson data
+    #[error("No lesson data found: {0}")]
+    NoLessonData(String),
+
+    /// No lesson specified
+    #[error("No lesson specified")]
+    NoLessonSpecified,
 }

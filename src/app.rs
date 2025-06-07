@@ -139,7 +139,7 @@ impl App {
                 .lock()
                 .map_err(|e| Error::StatusLock(e.to_string()))?;
             (
-                status.python_executable().clone(),
+                status.python_executable().map(String::from),
                 status.python_minimum_version().to_string(),
             )
         };
@@ -169,7 +169,10 @@ impl App {
                 .status
                 .lock()
                 .map_err(|e| Error::StatusLock(e.to_string()))?;
-            (status.workshop(), status.lesson())
+            (
+                status.workshop().map(String::from),
+                status.lesson().map(String::from),
+            )
         };
 
         // send the correct initial message to restore the state
@@ -193,7 +196,7 @@ impl App {
                 );
                 let check_deps = evt!(
                     None,
-                    tui::Event::CheckDeps(workshop.clone(), Some(delay), None,),
+                    tui::Event::CheckDeps(workshop.to_string(), Some(delay), None,),
                 );
                 let show_log = evt!(None, tui::Event::ShowLog(Some(check_deps)));
                 self.sender.send(show_log.into()).await?;
@@ -587,7 +590,7 @@ impl App {
                             (
                                 status.programming_language(),
                                 status.spoken_language(),
-                                status.python_executable(),
+                                status.python_executable().map(String::from),
                             )
                         };
 
@@ -700,9 +703,9 @@ impl App {
                         (
                             status.spoken_language(),
                             status.programming_language(),
-                            status.workshop(),
-                            status.lesson(),
-                            status.python_executable(),
+                            status.workshop().map(String::from),
+                            status.lesson().map(String::from),
+                            status.python_executable().map(String::from),
                         )
                     };
 

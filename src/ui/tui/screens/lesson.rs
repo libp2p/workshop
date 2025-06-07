@@ -1,6 +1,7 @@
 use crate::{
     fs,
     languages::{programming, spoken},
+    models::Error as ModelError,
     ui::tui::{
         self, screens,
         widgets::{LessonBox, LessonBoxState},
@@ -182,15 +183,23 @@ impl Lesson {
                     (
                         status.spoken_language(),
                         status.programming_language(),
-                        status.workshop().unwrap(),
-                        status.lesson().unwrap(),
+                        status
+                            .workshop()
+                            .map(String::from)
+                            .ok_or(ModelError::NoWorkshopSpecified)?,
+                        status
+                            .lesson()
+                            .map(String::from)
+                            .ok_or(ModelError::NoLessonSpecified)?,
                     )
                 };
                 if let Some(workshop_data) = fs::workshops::load(&workshop) {
                     info!("Loading lessons for workshop: {}", &workshop);
                     let lessons = workshop_data.get_lessons_data(spoken, programming).await?;
                     let workshop_title = workshop_data.get_metadata(spoken).await?.title;
-                    let lesson_data = lessons.get(&lesson).unwrap();
+                    let lesson_data = lessons
+                        .get(&lesson)
+                        .ok_or(ModelError::NoLessonData(lesson.to_string()))?;
                     let lesson_text = lesson_data.get_text().await?;
                     let lesson_title = lesson_data.get_metadata().await?.title;
                     self.init(

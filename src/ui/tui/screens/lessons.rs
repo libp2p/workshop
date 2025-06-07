@@ -1,7 +1,7 @@
 use crate::{
     fs,
     languages::{self, programming, spoken},
-    models::{Lesson, LessonData},
+    models::{Error as ModelError, Lesson, LessonData},
     ui::tui::{self, screens, widgets::ScrollText, Screen},
     Error, Status,
 };
@@ -364,7 +364,10 @@ impl Lessons<'_> {
                     (
                         status.spoken_language(),
                         status.programming_language(),
-                        status.workshop().unwrap(),
+                        status
+                            .workshop()
+                            .map(String::from)
+                            .ok_or(ModelError::NoWorkshopSpecified)?,
                     )
                 };
                 if let Some(workshop_data) = fs::workshops::load(&workshop) {

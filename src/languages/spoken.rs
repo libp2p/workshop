@@ -76,6 +76,14 @@ impl TryFrom<&str> for Code {
     }
 }
 
+impl TryFrom<String> for Code {
+    type Error = Error;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        Code::try_from(value.as_str())
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 pub enum Direction {
     #[default]

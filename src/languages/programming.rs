@@ -70,6 +70,14 @@ impl TryFrom<&str> for Code {
     }
 }
 
+impl TryFrom<String> for Code {
+    type Error = Error;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        Code::try_from(value.as_str())
+    }
+}
+
 macro_rules! generate_programming_enum {
     ($(($code:ident, $name:literal, $ext:literal)),* $(,)?) => {
         /// The list of language codes
