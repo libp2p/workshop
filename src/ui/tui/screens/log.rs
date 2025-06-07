@@ -1,6 +1,6 @@
 use crate::{
     languages::spoken,
-    ui::tui::{self, screens, widgets::ScrollText, Screen},
+    ui::tui::{self, screens, widgets::ScrollLog, Screen},
     Error, Status,
 };
 use crossterm::event::{self, KeyCode};
@@ -44,13 +44,11 @@ const STATUS_BORDER: Set = Set {
 #[derive(Clone, Debug)]
 pub struct Log<'a> {
     /// the log messages
-    log: VecDeque<String>,
+    log: VecDeque<(Option<String>, String)>,
     /// max log length
     max_log: usize,
-    /// the cached merged log messages
-    text: String,
     /// scroll text widget
-    st: ScrollText<'a>,
+    st: ScrollLog<'a>,
     /// the cached rect from last render
     area: Rect,
     /// the cached calculated rect
@@ -62,12 +60,11 @@ pub struct Log<'a> {
 impl Log<'_> {
     /// Create a new log Screen
     pub fn new(max_log: usize) -> Self {
-        let mut st = ScrollText::default();
+        let mut st = ScrollLog::default();
         st.scroll_bottom();
         Self {
             log: VecDeque::default(),
             max_log,
-            text: String::new(),
             st,
             area: Rect::default(),
             centered: Rect::default(),
@@ -93,21 +90,13 @@ impl Log<'_> {
         }
     }
 
-    fn add_message(&mut self, msg: String) {
+    fn add_message(&mut self, emoji: Option<String>, msg: String) {
         // add the message to the log
-        self.log.push_back(msg);
+        self.log.push_back((emoji, msg));
         // if the log is too long, remove the oldest message
         if self.log.len() > self.max_log {
             self.log.pop_front();
         }
-
-        // combine the log lines into a single string
-        self.text = self
-            .log
-            .iter()
-            .map(|line| line.as_str())
-            .collect::<Vec<_>>()
-            .join("\n");
     }
 
     // render the log messages
@@ -132,7 +121,7 @@ impl Log<'_> {
         self.st.style(Style::default().fg(Color::White));
 
         // render the scroll text
-        StatefulWidget::render(&mut self.st, area, buf, &mut self.text);
+        StatefulWidget::render(&mut self.st, area, buf, &mut self.log);
     }
 
     // render the status bar at the bottom
@@ -165,14 +154,7 @@ impl Log<'_> {
         _status: Arc<Mutex<Status>>,
     ) -> Result<(), Error> {
         match event {
-            tui::Event::Log(emoji, msg) => {
-                let m = if let Some(emoji) = emoji {
-                    format!("{emoji} {msg}")
-                } else {
-                    format!("   {msg}")
-                };
-                self.add_message(m);
-            }
+            tui::Event::Log(emoji, msg) => self.add_message(emoji, msg),
             _ => {
                 info!("Ignoring UI event: {:?}", event);
             }

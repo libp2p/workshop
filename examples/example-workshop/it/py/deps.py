@@ -53,10 +53,10 @@ def main():
         all_dependencies_met = False
     
     if all_dependencies_met:
-        print("\nAll dependencies are met!")
+        print("All dependencies are met!")
         sys.exit(0)
     else:
-        print("\nSome dependencies are missing. Please install them before continuing.")
+        print("Some dependencies are missing. Please install them before continuing.")
         sys.exit(1)
 
 if __name__ == "__main__":
