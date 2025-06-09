@@ -1,6 +1,7 @@
 use crate::{
+    command::CommandResult,
     languages::{programming, spoken},
-    ui::tui::screens::Screens,
+    ui::tui::{screens::Screens, widgets::StatusMode},
 };
 use std::collections::HashMap;
 use tokio::time::Duration;
@@ -22,7 +23,7 @@ macro_rules! evt {
 #[derive(Clone, Debug)]
 pub enum Event {
     /// log event
-    Log(Option<String>, String),
+    Log(String),
     /// toggle the log
     ToggleLog,
     /// show the log
@@ -81,13 +82,15 @@ pub enum Event {
     /// check dependendcies for the specified workshop
     CheckDeps(String, Option<Evt>, Option<Evt>),
     /// check the solutionto the lesson
-    CheckSolution,
-    /// the solution is a success
-    SolutionSuccess,
-    /// the solution is a failure
-    SolutionFailure,
+    CheckSolution(Option<Evt>, Option<Evt>),
+    /// the solution is correct
+    SolutionComplete,
+    /// the solution is incorrect
+    SolutionIncomplete,
     /// command started (show log screen)
-    CommandStarted(String),
-    /// command output (stdout)
-    CommandOutput(String),
+    CommandStarted(StatusMode, String),
+    /// command output
+    CommandOutput(String, Option<u8>),
+    /// command completed
+    CommandCompleted(CommandResult, Option<Evt>, Option<Evt>),
 }

@@ -45,4 +45,8 @@ pub enum Error {
     /// No Python executable found
     #[error("No Python executable found")]
     NoPythonExecutable,
+
+    /// Command error
+    #[error("Command error: {0}")]
+    Command(String),
 }

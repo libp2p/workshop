@@ -16,7 +16,7 @@ def check_command(command, min_version=None):
             print(f"! {command} version {min_version} or higher is required")
             return False
         
-        print(f"* {command} is installed")
+        print(f"v {command} is installed")
         return True
     except FileNotFoundError:
         print(f"! {command} is not installed")
@@ -45,9 +45,9 @@ def main():
                 print("! docker compose plugin is not installed")
                 all_dependencies_met = False
             else:
-                print("* docker compose is installed")
+                print("v docker compose is installed")
         else:
-            print("* docker-compose is installed")
+            print("v docker-compose is installed")
     else:
         print("! docker-compose is not installed")
         all_dependencies_met = False

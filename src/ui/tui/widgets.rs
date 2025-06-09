@@ -7,6 +7,9 @@ pub use scrolltext::ScrollText;
 pub mod scrolllog;
 pub use scrolllog::ScrollLog;
 
+pub mod statusbar;
+pub use statusbar::{StatusBar, StatusMode};
+
 pub mod lessonbox;
 pub use lessonbox::{
     parse_markdown, CodeBlock, Content, ContentBlock, Heading, Hint, LessonBox, LessonBoxState,

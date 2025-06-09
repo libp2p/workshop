@@ -1,9 +1,10 @@
 use crate::{
-    fs,
+    evt, fs,
     languages::{programming, spoken},
     models::Error as ModelError,
     ui::tui::{
-        self, screens,
+        self,
+        screens::{self, Screens},
         widgets::{LessonBox, LessonBoxState},
         Screen,
     },
@@ -20,7 +21,7 @@ use ratatui::{
 };
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc::Sender;
-use tracing::info;
+use tracing::{debug, info};
 
 const TOP_BORDER: Set = Set {
     top_left: "┌",
@@ -175,7 +176,7 @@ impl Lesson {
     ) -> Result<(), Error> {
         match event {
             tui::Event::LoadLesson => {
-                info!("Loading lessons");
+                debug!("Loading lessons");
                 let (spoken, programming, workshop, lesson) = {
                     let status = status
                         .lock()
@@ -194,7 +195,7 @@ impl Lesson {
                     )
                 };
                 if let Some(workshop_data) = fs::workshops::load(&workshop) {
-                    info!("Loading lessons for workshop: {}", &workshop);
+                    debug!("Loading lessons for workshop: {}", &workshop);
                     let lessons = workshop_data.get_lessons_data(spoken, programming).await?;
                     let workshop_title = workshop_data.get_metadata(spoken).await?.title;
                     let lesson_data = lessons
@@ -217,13 +218,24 @@ impl Lesson {
                     info!("Failed to load workshop data for: {}", &workshop);
                 }
             }
-            tui::Event::SolutionSuccess => {
-                info!("Solution check: SUCCESS");
-                // TODO: Could add visual feedback like temporary status message
+            tui::Event::SolutionComplete => {
+                // TODO: set the status of the lesson in the metadata to complete
+                let load_lessons = evt!(Screens::Lessons, tui::Event::LoadLessons);
+                let hide_log = evt!(None, tui::Event::HideLog(Some(load_lessons)));
+                let delay = evt!(
+                    None,
+                    tui::Event::Delay(std::time::Duration::from_secs(2), Some(hide_log),)
+                );
+                to_ui.send(delay.into()).await?;
             }
-            tui::Event::SolutionFailure => {
-                info!("Solution check: FAILURE");
-                // TODO: Could add visual feedback like temporary status message
+            tui::Event::SolutionIncomplete => {
+                let load_lesson = evt!(Screens::Lesson, tui::Event::LoadLesson);
+                let hide_log = evt!(None, tui::Event::HideLog(Some(load_lesson)));
+                let delay = evt!(
+                    None,
+                    tui::Event::Delay(std::time::Duration::from_secs(2), Some(hide_log),)
+                );
+                to_ui.send(delay.into()).await?;
             }
             _ => {
                 info!("Ignoring UI event: {:?}", event);
@@ -258,7 +270,14 @@ impl Lesson {
                 }
                 KeyCode::Char('c') | KeyCode::Char('C') => {
                     // Check solution
-                    to_ui.send((None, tui::Event::CheckSolution).into()).await?;
+                    let success = evt!(Screens::Lesson, tui::Event::SolutionComplete);
+                    let failure = evt!(Screens::Lesson, tui::Event::SolutionIncomplete);
+                    let check_solution = evt!(
+                        None,
+                        tui::Event::CheckSolution(Some(success), Some(failure)),
+                    );
+                    let show_log = evt!(None, tui::Event::ShowLog(Some(check_solution)));
+                    to_ui.send(show_log.into()).await?;
                 }
                 KeyCode::Char('b') | KeyCode::Esc => {
                     to_ui

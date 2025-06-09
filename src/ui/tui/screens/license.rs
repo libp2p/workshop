@@ -11,14 +11,37 @@ use crate::{
 use crossterm::event::{self, KeyCode};
 use ratatui::{
     buffer::Buffer,
-    layout::{Alignment, Constraint, Flex, Layout, Offset, Rect},
+    layout::{Alignment, Constraint, Flex, Layout, Rect},
     style::{Color, Style},
-    text::Line,
-    widgets::{Block, Borders, Clear, Padding, Paragraph, StatefulWidget, Widget, Wrap},
+    symbols::border::Set,
+    text::{Line, Span},
+    widgets::{block::Position, Block, Borders, Clear, Padding, StatefulWidget, Widget},
 };
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc::Sender;
 use tracing::info;
+
+const TOP_DIALOG_BORDER: Set = Set {
+    top_left: "┌",
+    top_right: "┐",
+    bottom_left: "│",
+    bottom_right: "│",
+    vertical_left: "│",
+    vertical_right: "│",
+    horizontal_top: "─",
+    horizontal_bottom: " ",
+};
+
+const STATUS_BORDER: Set = Set {
+    top_left: " ",
+    top_right: " ",
+    bottom_left: "└",
+    bottom_right: "┘",
+    vertical_left: " ",
+    vertical_right: " ",
+    horizontal_top: " ",
+    horizontal_bottom: "─",
+};
 
 #[derive(Clone, Debug, Default)]
 pub struct License<'a> {
@@ -35,6 +58,19 @@ pub struct License<'a> {
 }
 
 impl License<'_> {
+    /// Create a new log Screen
+    pub fn new() -> Self {
+        let mut st = ScrollText::default();
+        st.scroll_top();
+        Self {
+            text: String::new(),
+            area: Rect::default(),
+            centered: Rect::default(),
+            st,
+            spoken_language: None,
+        }
+    }
+
     /// set the license text
     pub async fn set_license(
         &mut self,
@@ -60,6 +96,7 @@ impl License<'_> {
                 Constraint::Percentage(10),
             ])
             .areas(hc);
+            self.area = area;
         }
     }
 
@@ -67,12 +104,18 @@ impl License<'_> {
     fn render_license(&mut self, area: Rect, buf: &mut Buffer) {
         Widget::render(Clear, area, buf);
 
-        // render the list of license lines
-        let block = Block::new()
-            .title(Line::from(" License "))
+        let title = Line::from(vec![
+            Span::styled("─", Style::default().fg(Color::DarkGray)),
+            Span::styled("/ License /", Style::default().fg(Color::White)),
+        ]);
+
+        let block = Block::default()
+            .title(title)
+            .title_style(Style::default().fg(Color::White))
             .padding(Padding::horizontal(1))
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::White));
+            .style(Style::default().fg(Color::DarkGray))
+            .borders(Borders::LEFT | Borders::RIGHT | Borders::TOP)
+            .border_set(TOP_DIALOG_BORDER);
 
         self.st.block(block);
         self.st.style(Style::default().fg(Color::White));
@@ -83,19 +126,24 @@ impl License<'_> {
 
     // render the status bar at the bottom
     fn render_status(&mut self, area: Rect, buf: &mut Buffer) {
+        let line = Line::from(vec![
+            Span::styled("─", Style::default().fg(Color::DarkGray)),
+            Span::styled(
+                "/ j,k scroll / ⤒ top / ⤓ bottom / b back / q quit /",
+                Style::default().fg(Color::White),
+            ),
+        ]);
         let block = Block::default()
-            .borders(Borders::NONE)
+            .title(line)
+            .title_style(Style::default().fg(Color::White))
+            .title_position(Position::Bottom)
+            .title_alignment(Alignment::Left)
+            .style(Style::default().fg(Color::DarkGray))
+            .borders(Borders::LEFT | Borders::BOTTOM | Borders::RIGHT)
+            .border_set(STATUS_BORDER)
             .padding(Padding::horizontal(1));
 
-        let keys = Paragraph::new(
-            " ↓/↑ or j/k: scroll  |  PgUp: start  | PgDwn: end  |  b: back  |  q: quit",
-        )
-        .block(block)
-        .style(Style::default().fg(Color::Black).bg(Color::White))
-        .wrap(Wrap { trim: true })
-        .alignment(Alignment::Left);
-
-        Widget::render(keys, area, buf);
+        Widget::render(block, area, buf);
     }
 
     /// handle UI events
@@ -171,23 +219,10 @@ impl Screen for License<'_> {
         // clear area around the popup
         Widget::render(Clear, self.centered, buf);
 
-        let centered_block = Block::default()
-            .padding(Padding::uniform(2))
-            .borders(Borders::NONE);
-        let working_area = centered_block.inner(self.centered);
-
-        // draw drop shadow
-        let mut shadow_area = working_area;
-        shadow_area = shadow_area.offset(Offset { x: 1, y: 1 });
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::DarkGray).bg(Color::DarkGray));
-        Widget::render(block, shadow_area, buf);
-
         let [license_area, status_area] =
             Layout::vertical([Constraint::Percentage(100), Constraint::Min(1)])
                 .flex(Flex::End)
-                .areas(working_area);
+                .areas(self.centered);
 
         self.render_license(license_area, buf);
         self.render_status(status_area, buf);

@@ -123,6 +123,8 @@ impl StatefulWidget for &mut ScrollLog<'_> {
     type State = VecDeque<(Option<String>, String)>;
 
     fn render(self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
+        // ScrollLog now renders in the full area - StatusBar will be rendered separately
+        let log_messages = state;
         // get the available width after considering block
         let inner_area = if let Some(block) = &self.block {
             block.inner(area)
@@ -137,7 +139,7 @@ impl StatefulWidget for &mut ScrollLog<'_> {
         // collect all log entries and wrap the messages
         let mut all_lines = Vec::new();
 
-        for (emoji, message) in state.iter() {
+        for (emoji, message) in log_messages.iter() {
             let wrap_options = textwrap::Options::new(right_column_width).break_words(true);
             let wrapped_lines = textwrap::wrap(message, &wrap_options);
 

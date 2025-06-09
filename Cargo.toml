@@ -6,7 +6,6 @@ authors = ["Dave Grantham <dwg@linuxprogrammer.org>"]
 description = "A toolkit for authoring and presenting programming workshops"
 readme = "README.md"
 license = "MIT OR Apache-2.0"
-clippy = { version = "0.1.0", features = ["strict"] }
 
 [dependencies]
 anyhow = "1.0.98"

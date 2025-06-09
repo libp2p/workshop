@@ -1,4 +1,7 @@
-use crate::ui::tui::{self, screens};
+use crate::{
+    ui::tui::{self, screens, widgets::StatusMode},
+    Error,
+};
 use std::path::Path;
 use tokio::{
     io::{AsyncBufReadExt, BufReader},
@@ -41,7 +44,7 @@ impl CommandRunner {
         args: &[&str],
         working_dir: Option<&std::path::Path>,
         token: &CancellationToken,
-    ) -> Result<CommandResult, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<CommandResult, Error> {
         // Build command
         let mut command = Command::new(cmd);
         command.args(args);
@@ -50,10 +53,16 @@ impl CommandRunner {
             command.current_dir(dir);
         }
 
-        // Send command info to log
+        // Send command info to log screen
         let cmd_info = format!("{} {}", cmd, args.join(" "));
         self.event_sender
-            .send((None, tui::Event::CommandStarted(cmd_info.clone())).into())
+            .send(
+                (
+                    Some(screens::Screens::Log),
+                    tui::Event::CommandStarted(StatusMode::Messages, cmd_info.clone()),
+                )
+                    .into(),
+            )
             .await?;
 
         // Spawn process with piped stdout/stderr
@@ -83,7 +92,7 @@ impl CommandRunner {
                 // Handle cancellation
                 _ = token.cancelled() => {
                     let _ = child.kill().await;
-                    return Err("Command cancelled".into());
+                    return Err(Error::Command("Command cancelled".to_string()));
                 }
 
                 // Read stdout line by line
@@ -93,8 +102,8 @@ impl CommandRunner {
                             if let Some(prev_line) = stdout_line.take() {
                                 self.event_sender
                                     .send((
-                                        None,
-                                        tui::Event::CommandOutput(prev_line)
+                                        Some(screens::Screens::Log),
+                                        tui::Event::CommandOutput(prev_line, None)
                                     ).into())
                                     .await?;
                             }
@@ -118,8 +127,8 @@ impl CommandRunner {
                             if let Some(prev_line) = stderr_line.take() {
                                 self.event_sender
                                     .send((
-                                        None,
-                                        tui::Event::CommandOutput(prev_line)
+                                        Some(screens::Screens::Log),
+                                        tui::Event::CommandOutput(prev_line, None)
                                     ).into())
                                     .await?;
                             }
@@ -163,7 +172,7 @@ impl CommandRunner {
         python_executable: &str,
         lesson_dir: &Path,
         token: &CancellationToken,
-    ) -> Result<CommandResult, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<CommandResult, Error> {
         // Run docker-compose up -d
         let docker_result = self
             .run_command("docker-compose", &["up", "-d"], Some(lesson_dir), token)
@@ -189,7 +198,7 @@ impl CommandRunner {
         python_executable: &str,
         deps_script: &Path,
         token: &CancellationToken,
-    ) -> Result<CommandResult, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<CommandResult, Error> {
         let script_dir = deps_script
             .parent()
             .unwrap_or_else(|| std::path::Path::new("."));

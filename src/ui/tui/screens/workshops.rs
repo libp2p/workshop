@@ -561,7 +561,6 @@ impl Workshops<'_> {
                 KeyCode::Char('k') | KeyCode::Char('K') | KeyCode::Up => self.prev().await?,
                 KeyCode::Char('l') | KeyCode::Char('L') => {
                     if let Some(license) = self.get_license() {
-                        info!("Show license: {}", license);
                         to_ui
                             .send(
                                 (

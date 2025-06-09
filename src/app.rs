@@ -30,7 +30,7 @@ const MAX_LOG_LINES: usize = 10000;
 /// Tui implementation of the UI
 pub struct App {
     /// The receiver from the logger
-    from_logger: Receiver<(Option<String>, String)>,
+    from_logger: Receiver<String>,
     /// The status
     status: Arc<Mutex<Status>>,
     /// The available screens - uses wrapper types with 'static lifetime
@@ -59,7 +59,7 @@ impl Drop for App {
 
 impl App {
     /// Create a new UI
-    pub fn new(from_logger: Receiver<(Option<String>, String)>) -> Result<Self, Error> {
+    pub fn new(from_logger: Receiver<String>) -> Result<Self, Error> {
         debug!("Creating UI");
         let (sender, receiver) = tokio::sync::mpsc::channel(1_000_000);
         let command_runner = CommandRunner::new(sender.clone());
@@ -223,8 +223,8 @@ impl App {
                 }
 
                 // queue up a log message
-                Some((emoji, msg)) = self.from_logger.recv() => {
-                    self.sender.send((Some(Screens::Log), tui::Event::Log(emoji, msg)).into()).await?;
+                Some(msg) = self.from_logger.recv() => {
+                    self.sender.send((Some(Screens::Log), tui::Event::Log(msg)).into()).await?;
                 }
 
                 // get the next event in the queue
@@ -303,7 +303,7 @@ impl App {
                     }
                 }
                 tui::Event::Show(screen) => {
-                    info!("Show screen: {}", screen);
+                    debug!("Show screen: {}", screen);
                     self.screen.store(screen.clone() as u8, Ordering::SeqCst);
                 }
                 tui::Event::SetSpokenLanguage(spoken_language, default, next) => {
@@ -596,12 +596,16 @@ impl App {
 
                         let py_exe = python_executable.ok_or(Error::NoPythonExecutable)?;
 
-                        info!(
-                            "Running dependency check: {}, {}, {}",
-                            workshop,
-                            languages::spoken_name(spoken_language),
-                            languages::programming_name(programming_language)
+                        let running = evt!(
+                            Screens::Log,
+                            tui::Event::Log(format!(
+                                "r Running dependency check: {}, {}, {}",
+                                workshop,
+                                languages::spoken_name(spoken_language),
+                                languages::programming_name(programming_language)
+                            ))
                         );
+                        to_ui.send(running.into()).await?;
 
                         // Get deps.py path using workshop model (handles defaults automatically)
                         match workshop_data
@@ -625,35 +629,30 @@ impl App {
                                         .await
                                     {
                                         Ok(result) => {
-                                            debug!(
-                                                "Dependency check completed with exit code: {}",
-                                                result.exit_code
-                                            );
-
-                                            let emoji = if result.success {
-                                                Some("🎉".to_string())
-                                            } else {
-                                                Some("😢".to_string())
-                                            };
                                             let _ = sender
                                                 .send(
                                                     (
                                                         Some(Screens::Log),
-                                                        tui::Event::Log(emoji, result.last_line),
+                                                        tui::Event::CommandCompleted(
+                                                            result, success, failed,
+                                                        ),
                                                     )
                                                         .into(),
                                                 )
                                                 .await;
-
-                                            if let Some(success) = success {
-                                                let _ = sender.send(success.into()).await;
-                                            }
                                         }
                                         Err(e) => {
-                                            error!("Failed to check dependencies: {}", e);
-                                            if let Some(failed) = failed {
-                                                let _ = sender.send(failed.into()).await;
-                                            }
+                                            let _ = sender
+                                                .send(
+                                                    (
+                                                        Some(Screens::Log),
+                                                        tui::Event::Log(format!(
+                                                            "! check deps failed: {e}"
+                                                        )),
+                                                    )
+                                                        .into(),
+                                                )
+                                                .await;
                                         }
                                     }
                                 });
@@ -672,28 +671,7 @@ impl App {
                         }
                     }
                 }
-                tui::Event::CommandStarted(command) => {
-                    let emoji = Some("🚀".to_string());
-                    to_ui
-                        .send((Some(Screens::Log), tui::Event::Log(emoji, command)).into())
-                        .await?;
-                }
-                tui::Event::CommandOutput(output) => {
-                    // lines can be prefixed with characters that translate into emojis here
-                    // '*' -> ✅
-                    // '!' -> ❌
-                    let (emoji, output) = if output.starts_with('*') {
-                        (Some("✅".to_string()), output[2..].to_string())
-                    } else if output.starts_with('!') {
-                        (Some("❌".to_string()), output[2..].to_string())
-                    } else {
-                        (None, output)
-                    };
-                    to_ui
-                        .send((Some(Screens::Log), tui::Event::Log(emoji, output)).into())
-                        .await?;
-                }
-                tui::Event::CheckSolution => {
+                tui::Event::CheckSolution(success, failed) => {
                     info!("Check solution");
                     // Get current status information
                     let (spoken, programming, workshop, lesson, python_executable) = {
@@ -714,12 +692,16 @@ impl App {
                     // Check if we have required workshop and lesson
                     if let (Some(workshop), Some(lesson)) = (workshop, lesson) {
                         if let Some(workshop_data) = fs::workshops::load(&workshop) {
-                            info!("Running solution check for lesson: '{}'", lesson);
+                            let running = evt!(
+                                Screens::Log,
+                                tui::Event::Log(format!("r Running solution check: {}", lesson,))
+                            );
+                            to_ui.send(running.into()).await?;
 
                             // Get lesson directory path using workshop model (handles defaults automatically)
                             match workshop_data.get_lesson_dir_path(&lesson, spoken, programming) {
                                 Ok(lesson_dir) => {
-                                    info!(
+                                    debug!(
                                         "Solution check lesson directory: {}",
                                         lesson_dir.display()
                                     );
@@ -735,18 +717,28 @@ impl App {
                                             .await
                                         {
                                             Ok(result) => {
-                                                let event = if result.success {
-                                                    tui::Event::SolutionSuccess
-                                                } else {
-                                                    tui::Event::SolutionFailure
-                                                };
-                                                let _ = sender.send((None, event).into()).await;
-                                            }
-                                            Err(e) => {
-                                                error!("Failed to check solution: {}", e);
                                                 let _ = sender
                                                     .send(
-                                                        (None, tui::Event::SolutionFailure).into(),
+                                                        (
+                                                            Some(Screens::Log),
+                                                            tui::Event::CommandCompleted(
+                                                                result, success, failed,
+                                                            ),
+                                                        )
+                                                            .into(),
+                                                    )
+                                                    .await;
+                                            }
+                                            Err(e) => {
+                                                let _ = sender
+                                                    .send(
+                                                        (
+                                                            Some(Screens::Log),
+                                                            tui::Event::Log(format!(
+                                                                "! check deps failed: {e}"
+                                                            )),
+                                                        )
+                                                            .into(),
                                                     )
                                                     .await;
                                             }
@@ -755,22 +747,22 @@ impl App {
                                 }
                                 Err(e) => {
                                     error!("Failed to get lesson directory path: {}", e);
-                                    to_ui
-                                        .send((None, tui::Event::SolutionFailure).into())
-                                        .await?;
+                                    if let Some(failed) = failed {
+                                        let _ = to_ui.send(failed.into()).await;
+                                    }
                                 }
                             }
                         } else {
                             error!("Failed to load workshop data for: {}", workshop);
-                            to_ui
-                                .send((None, tui::Event::SolutionFailure).into())
-                                .await?;
+                            if let Some(failed) = failed {
+                                let _ = to_ui.send(failed.into()).await;
+                            }
                         }
                     } else {
                         error!("Cannot check solution: missing workshop or lesson selection");
-                        to_ui
-                            .send((None, tui::Event::SolutionFailure).into())
-                            .await?;
+                        if let Some(failed) = failed {
+                            let _ = to_ui.send(failed.into()).await;
+                        }
                     }
                 }
                 _ => {
