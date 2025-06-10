@@ -1,4 +1,4 @@
-Welcome to your first Python lesson! In this lesson, you'll write a simple program that prints "Hello, world!" to the console.
+Welcome to your first Python lesson! In this lesson, you'll write a simple program that prints "Hello, World!" to the console.
 
 ## Introduction
 
@@ -11,12 +11,12 @@ In Python, a "Hello, World!" program demonstrates:
 
 ## Your Task
 
-Create a Python program that prints "Hello, world!" to the console.
+Create a Python program that prints "Hello, World!" to the console.
 
 To complete this task:
 
 1. Create a new file named `hello-world.py` in the current directory
-2. Write a Python program that prints "Hello, world!" to the console
+2. Write a Python program that prints "Hello, World!" to the console
 3. Run the check command to verify your solution
 
 ## Hint - Getting Started
@@ -52,7 +52,7 @@ Here's the complete solution:
 ```python
 def main() -> None:
     """The main function of the program."""
-    print("Hello, world!")
+    print("Hello, World!")
 
 if __name__ == "__main__":
     main()

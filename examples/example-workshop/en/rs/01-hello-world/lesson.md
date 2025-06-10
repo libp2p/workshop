@@ -1,4 +1,4 @@
-Welcome to your first Rust lesson! In this lesson, you'll write a simple program that prints "Hello, world!" to the console.
+Welcome to your first Rust lesson! In this lesson, you'll write a simple program that prints "Hello, World!" to the console.
 
 ## Introduction
 
@@ -11,12 +11,12 @@ In Rust, a "Hello, World!" program demonstrates:
 
 ## Your Task
 
-Create a Rust program that prints "Hello, world!" to the console.
+Create a Rust program that prints "Hello, World!" to the console.
 
 To complete this task:
 
 1. Edit the file named `main.rs` in the `src/` subfolder of your Rust project
-2. Write a Rust program that prints "Hello, world!" to the console
+2. Write a Rust program that prints "Hello, World!" to the console
 3. Run the check command to verify your solution
 
 ## Hint - Getting Started
@@ -51,7 +51,7 @@ Here's the complete solution:
 
 ```rust
 fn main() {
-    println!("Hello, world!");
+    println!("Hello, World!");
 }
 ```
 
