@@ -1,9 +1,9 @@
 [package]
 name = "workshop"
-version = "0.1.0"
+version = "1.0.0"
 edition = "2021"
 authors = ["Dave Grantham <dwg@linuxprogrammer.org>"]
-description = "A toolkit for authoring and presenting programming workshops"
+description = "A tool for presenting programming workshops"
 readme = "README.md"
 license = "MIT OR Apache-2.0"
 
