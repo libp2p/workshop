@@ -16,7 +16,7 @@ use ratatui::{
 };
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc::Sender;
-use tracing::{debug, info};
+use tracing::debug;
 
 const TOP_DIALOG_BORDER: Set = Set {
     top_left: "┌",
@@ -237,7 +237,7 @@ impl Spoken<'_> {
             tui::Event::ChangeSpokenLanguage(all_languages, spoken, allow_any, next) => {
                 let mut spoken_languages = all_languages.keys().cloned().collect::<Vec<_>>();
                 spoken_languages.sort();
-                info!("Changing spoken language");
+                debug!("Changing spoken language");
                 self.init(&spoken_languages, spoken, allow_any, next)
                     .await?;
                 to_ui
@@ -263,7 +263,7 @@ impl Spoken<'_> {
                 KeyCode::PageUp => self.list_state.select_first(),
                 KeyCode::PageDown => self.list_state.select_last(),
                 KeyCode::Char('b') | KeyCode::Esc => {
-                    info!("Back to previous screen");
+                    debug!("Back to previous screen");
                     to_ui
                         .send((Some(screens::Screens::Workshops), tui::Event::LoadWorkshops).into())
                         .await?;

@@ -23,7 +23,7 @@ use tokio::{
     sync::mpsc::{Receiver, Sender},
 };
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, error, info, trace};
+use tracing::{debug, error, info};
 
 const MAX_LOG_LINES: usize = 10000;
 
@@ -60,7 +60,6 @@ impl Drop for App {
 impl App {
     /// Create a new UI
     pub fn new(from_logger: Receiver<String>) -> Result<Self, Error> {
-        debug!("Creating UI");
         let (sender, receiver) = tokio::sync::mpsc::channel(1_000_000);
         let command_runner = CommandRunner::new(sender.clone());
 
@@ -79,7 +78,6 @@ impl App {
 
     // create the screens
     fn create_screens() -> HashMap<Screens, Box<dyn Screen>> {
-        trace!("Creating screens");
         let mut screens = HashMap::<Screens, Box<dyn Screen>>::with_capacity(8);
 
         // Welcome Screen
@@ -115,7 +113,6 @@ impl App {
         // Lesson Screen
         screens.insert(Screens::Lesson, Box::new(screens::Lesson::default()));
 
-        debug!("screens created: {:?}", screens.keys());
         screens
     }
 
@@ -124,14 +121,8 @@ impl App {
         &self.command_runner
     }
 
-    /// async run loop
-    pub async fn run(&mut self) -> Result<(), Error> {
-        // initialize the terminal
-        let mut terminal = ratatui::init();
-
-        // initialize the input event stream
-        let mut reader = EventStream::new();
-
+    /// Setup python
+    async fn detect_python(&mut self) -> Result<(), Error> {
         // try to get the python executable and minimum version from the status
         let (py_exe, py_min_ver) = {
             let status = self
@@ -146,21 +137,72 @@ impl App {
 
         // if we don't have the path, try to find it
         if py_exe.is_none() {
-            let python_executable = fs::application::find_python_executable(py_min_ver).await;
-            if let Ok(python_executable) = python_executable {
-                info!("Setting Python executable: {}", python_executable);
-                {
-                    let mut status = self
-                        .status
-                        .lock()
-                        .map_err(|e| Error::StatusLock(e.to_string()))?;
-                    status.set_python_executable(&python_executable, true);
-                }
-            } else {
-                // did find one so exit with a reasonable error
-                error!("No Python executable found");
-                return Err(Error::NoPythonExecutable);
+            let python_executable = fs::application::find_python_executable(py_min_ver).await?;
+            debug!("Setting Python executable: {}", python_executable);
+            {
+                let mut status = self
+                    .status
+                    .lock()
+                    .map_err(|e| Error::StatusLock(e.to_string()))?;
+                status.set_python_executable(&python_executable, true);
             }
+        }
+
+        Ok(())
+    }
+
+    // Setup docker compose
+    async fn detect_docker_compose(&mut self) -> Result<(), Error> {
+        // try to get the docker executable from the status
+        let (docker_compose_exe, docker_compose_min_ver) = {
+            let status = self
+                .status
+                .lock()
+                .map_err(|e| Error::StatusLock(e.to_string()))?;
+            (
+                status.docker_compose_executable().map(String::from),
+                status.docker_compose_minimum_version().to_string(),
+            )
+        };
+
+        // if we don't have the path, try to find it
+        if docker_compose_exe.is_none() {
+            let docker_compose_executable =
+                fs::application::find_docker_compose_executable(docker_compose_min_ver).await?;
+            debug!(
+                "Setting docker compose executable: {}",
+                docker_compose_executable
+            );
+            {
+                let mut status = self
+                    .status
+                    .lock()
+                    .map_err(|e| Error::StatusLock(e.to_string()))?;
+                status.set_docker_compose_executable(&docker_compose_executable, true);
+            }
+        }
+
+        Ok(())
+    }
+
+    /// async run loop
+    pub async fn run(&mut self) -> Result<(), Error> {
+        // initialize the terminal
+        let mut terminal = ratatui::init();
+
+        // initialize the input event stream
+        let mut reader = EventStream::new();
+
+        // try to get the python executable and minimum version from the status
+        if self.detect_python().await.is_err() {
+            error!("Failed to detect Python executable or version");
+            return Err(Error::NoPythonExecutable);
+        }
+
+        // try to get the docker compose executable and minimum version from the status
+        if self.detect_docker_compose().await.is_err() {
+            error!("Failed to detect Docker Compose executable or version");
+            return Err(Error::NoDockerComposeExecutable);
         }
 
         // initialize the state
@@ -234,7 +276,7 @@ impl App {
 
                 // check if we should quit
                 _ = self.token.cancelled() => {
-                    info!("cancelation token triggered, quitting...");
+                    debug!("cancelation token triggered, quitting...");
                     break 'run;
                 }
             }
@@ -277,7 +319,6 @@ impl App {
         } else {
             match event {
                 tui::Event::Quit => {
-                    info!("Quit");
                     self.token.cancel();
                 }
                 tui::Event::ToggleLog => {
@@ -307,7 +348,7 @@ impl App {
                     self.screen.store(screen.clone() as u8, Ordering::SeqCst);
                 }
                 tui::Event::SetSpokenLanguage(spoken_language, default, next) => {
-                    info!(
+                    debug!(
                         "Spoken language set: {}",
                         languages::spoken_name(spoken_language)
                     );
@@ -375,7 +416,7 @@ impl App {
                     }
                 }
                 tui::Event::SetProgrammingLanguage(programming_language, default, next) => {
-                    info!(
+                    debug!(
                         "Programming language set: {}",
                         languages::programming_name(programming_language)
                     );
@@ -446,7 +487,7 @@ impl App {
                 }
                 tui::Event::SetWorkshop(workshop, all_languages) => {
                     if let Some(workshop) = workshop {
-                        info!("Setting workshop: {:?}", workshop);
+                        debug!("Setting workshop: {:?}", workshop);
                         let (spoken_language, programming_language) = {
                             let status = self
                                 .status
@@ -554,9 +595,9 @@ impl App {
                     }
                 }
                 tui::Event::SetLesson(lesson) => {
-                    info!("Lesson set: {:?}", lesson);
+                    debug!("Lesson set: {:?}", lesson);
                     if let Some(lesson) = lesson {
-                        info!("Setting lesson: {:?}", lesson);
+                        debug!("Setting lesson: {:?}", lesson);
                         {
                             let mut status = status
                                 .lock()
@@ -567,7 +608,7 @@ impl App {
                             .send((Some(Screens::Lesson), tui::Event::LoadLesson).into())
                             .await?;
                     } else {
-                        info!("Clearing lesson");
+                        debug!("Clearing lesson");
                         {
                             let mut status = status
                                 .lock()
@@ -672,9 +713,16 @@ impl App {
                     }
                 }
                 tui::Event::CheckSolution(success, failed) => {
-                    info!("Check solution");
+                    debug!("Check solution");
                     // Get current status information
-                    let (spoken, programming, workshop, lesson, python_executable) = {
+                    let (
+                        spoken,
+                        programming,
+                        workshop,
+                        lesson,
+                        python_executable,
+                        docker_compose_executable,
+                    ) = {
                         let status = status
                             .lock()
                             .map_err(|e| Error::StatusLock(e.to_string()))?;
@@ -684,10 +732,13 @@ impl App {
                             status.workshop().map(String::from),
                             status.lesson().map(String::from),
                             status.python_executable().map(String::from),
+                            status.docker_compose_executable().map(String::from),
                         )
                     };
 
                     let py_exe = python_executable.ok_or(Error::NoPythonExecutable)?;
+                    let dc_exe =
+                        docker_compose_executable.ok_or(Error::NoDockerComposeExecutable)?;
 
                     // Check if we have required workshop and lesson
                     if let (Some(workshop), Some(lesson)) = (workshop, lesson) {
@@ -713,7 +764,7 @@ impl App {
 
                                     tokio::spawn(async move {
                                         match command_runner
-                                            .check_solution(&py_exe, &lesson_dir, &token)
+                                            .check_solution(&dc_exe, &py_exe, &lesson_dir, &token)
                                             .await
                                         {
                                             Ok(result) => {
@@ -735,7 +786,7 @@ impl App {
                                                         (
                                                             Some(Screens::Log),
                                                             tui::Event::Log(format!(
-                                                                "! check deps failed: {e}"
+                                                                "! check solution failed: {e}"
                                                             )),
                                                         )
                                                             .into(),

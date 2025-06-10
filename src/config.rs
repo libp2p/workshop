@@ -11,6 +11,8 @@ use tracing::info;
 pub struct Config {
     python_minumum_version: String,
     python_executable: Option<String>,
+    docker_compose_minimum_version: String,
+    docker_compose_executable: Option<String>,
     spoken_language: Option<spoken::Code>,
     programming_language: Option<programming::Code>,
 }
@@ -18,8 +20,10 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Config {
-            python_minumum_version: "3.10".to_string(),
+            python_minumum_version: "3.10.0".to_string(),
             python_executable: None,
+            docker_compose_minimum_version: "2.0.0".to_string(),
+            docker_compose_executable: None,
             spoken_language: None,
             programming_language: None,
         }
@@ -60,6 +64,16 @@ impl Config {
         self.python_executable.clone()
     }
 
+    /// Get the minimum required Docker Compose version
+    pub fn docker_compose_minimum_version(&self) -> &str {
+        &self.docker_compose_minimum_version
+    }
+
+    /// Get the preferred Docker Compose executable
+    pub fn docker_compose_executable(&self) -> Option<String> {
+        self.docker_compose_executable.clone()
+    }
+
     /// Get the preferred spoken language
     pub fn spoken_language(&self) -> Option<spoken::Code> {
         self.spoken_language
@@ -73,6 +87,11 @@ impl Config {
     /// Set the preferred Python executable
     pub fn set_python_executable(&mut self, python_executable: &str) {
         self.python_executable = Some(python_executable.to_string());
+    }
+
+    /// Set the preferred Docker Compose executable
+    pub fn set_docker_compose_executable(&mut self, docker_compose_executable: &str) {
+        self.docker_compose_executable = Some(docker_compose_executable.to_string());
     }
 
     /// Set the spoken language

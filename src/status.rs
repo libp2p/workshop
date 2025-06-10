@@ -4,7 +4,7 @@ use crate::{
     Config, Error,
 };
 use serde::{Deserialize, Serialize};
-use tracing::info;
+use tracing::{info, info_span};
 
 /// This stores the currently active context for the application. It includes the spoken language,
 /// programming language, selected workshop, and selected lesson. It serialzies to the status.yaml
@@ -13,6 +13,7 @@ use tracing::info;
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct Status {
     python_executable: Option<String>,
+    docker_compose_executable: Option<String>,
     spoken_language: Option<spoken::Code>,
     programming_language: Option<programming::Code>,
     workshop: Option<String>,
@@ -24,6 +25,9 @@ pub struct Status {
 impl Status {
     /// load/create status
     pub fn load() -> Result<Self, Error> {
+        let span = info_span!("Config");
+        let _enter = span.enter();
+
         let config = Config::load()?;
         if let Some(path) = fs::workshops::data_dir().map(|d| d.join("status.yaml")) {
             if path.exists() {
@@ -37,6 +41,7 @@ impl Status {
         // otherwise, create the status
         Ok(Status {
             python_executable: config.python_executable(),
+            docker_compose_executable: config.docker_compose_executable(),
             spoken_language: config.spoken_language(),
             programming_language: config.programming_language(),
             workshop: None,
@@ -68,6 +73,16 @@ impl Status {
         self.python_executable.as_deref()
     }
 
+    /// Get the minimum required Docker Compose version
+    pub fn docker_compose_minimum_version(&self) -> &str {
+        self.config.docker_compose_minimum_version()
+    }
+
+    /// Get the preferred Docker Compose executable
+    pub fn docker_compose_executable(&self) -> Option<&str> {
+        self.docker_compose_executable.as_deref()
+    }
+
     /// Get the preferred spoken language
     pub fn spoken_language(&self) -> Option<spoken::Code> {
         self.spoken_language
@@ -93,6 +108,19 @@ impl Status {
         self.python_executable = Some(python_executable.to_string());
         if default {
             self.config.set_python_executable(python_executable);
+        }
+    }
+
+    /// Set the preferred Docker Compose executable with optional default
+    pub fn set_docker_compose_executable(
+        &mut self,
+        docker_compose_executable: &str,
+        default: bool,
+    ) {
+        self.docker_compose_executable = Some(docker_compose_executable.to_string());
+        if default {
+            self.config
+                .set_docker_compose_executable(docker_compose_executable);
         }
     }
 

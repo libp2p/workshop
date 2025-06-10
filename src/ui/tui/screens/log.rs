@@ -60,6 +60,8 @@ fn emoji() -> &'static HashMap<&'static str, String> {
         map.insert("! ", "❗".to_string());
         map.insert("^ ", "⚠️ ".to_string());
         map.insert("i ", "ℹ️ ".to_string());
+        map.insert("> ", "↪️ ".to_string());
+        map.insert("< ", "↩️ ".to_string());
         map
     })
 }

@@ -1,13 +1,17 @@
-FROM rust:1.82 AS builder
+FROM rust:1.87 AS builder
 
 WORKDIR /app
 
 # Copy the Cargo.toml and src directory
-COPY ../../../Cargo.toml .
-COPY ../../../src ./src
+COPY Cargo.toml .
+COPY src ./src
 
-# Build the application
+# build the app
 RUN cargo build
+
+# Get the name of the application from Cargo.toml
+RUN APP_NAME=$(awk '/^name = / {gsub(/"/, "", $3); print $3}' Cargo.toml) && \
+    cp /app/target/debug/"$APP_NAME" /app/target/debug/lesson
 
 # Final stage
 FROM debian:bookworm-slim
@@ -20,10 +24,7 @@ RUN apt-get update && apt-get install -y \
 WORKDIR /app
 
 # Copy the binary from the builder stage
-COPY --from=builder /app/target/debug/workshop /app/workshop
+COPY --from=builder /app/target/debug/lesson /app/lesson
 
-# Set the entrypoint
-ENTRYPOINT ["/app/workshop"]
-
-# This will be redirected to /stdout.log via the docker-compose.yaml
-CMD [""]
+# Set the command to run and redirect output
+CMD ["/bin/sh", "-c", "/app/lesson > /app/stdout.log 2>&1"]

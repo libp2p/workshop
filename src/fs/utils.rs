@@ -21,16 +21,8 @@ pub mod application {
     pub async fn find_python_executable<S: AsRef<str>>(min_version: S) -> Result<String, Error> {
         // parse the python version from the --version output
         fn parse_version(output: &str) -> Option<Version> {
-            let version_str = output
-                .split_whitespace()
-                .find(|s| s.starts_with("Python"))
-                .and_then(|s| s.strip_prefix("Python"))
-                .or_else(|| {
-                    output
-                        .split_whitespace()
-                        .find(|s| s.chars().all(|c| c.is_ascii_digit() || c == '.'))
-                })?;
-            Version::parse(version_str.trim()).ok()
+            let version_str = output.rsplit_once(' ')?.1.trim();
+            Version::parse(version_str).ok()
         }
 
         let min_version =
@@ -98,7 +90,7 @@ pub mod application {
                     if let Some(version) = parse_version(&version_output) {
                         if version >= min_version {
                             info!(
-                                "Found Python executable: {} (version: {})",
+                                "v Found Python executable: {} (version: {})",
                                 candidate, version
                             );
                             return Ok(candidate.to_string());
@@ -110,6 +102,12 @@ pub mod application {
                         );
                     }
                 }
+            } else {
+                debug!(
+                    "Failed to execute candidate '{}': {}",
+                    candidate,
+                    output.unwrap_err()
+                );
             }
         }
 
@@ -131,6 +129,185 @@ pub mod application {
         }
 
         Err(Error::NoPythonExecutable)
+    }
+
+    /// Try to get the path to the docker compose executable
+    pub async fn find_docker_compose_executable<S: AsRef<str>>(
+        min_version: S,
+    ) -> Result<String, Error> {
+        let min_version =
+            Version::parse(min_version.as_ref()).map_err(|_| Error::NoDockerComposeExecutable)?;
+
+        // First, try to find docker executable and test if it has compose subcommand
+        if let Ok(docker_compose_cmd) = try_docker_compose_plugin(&min_version).await {
+            return Ok(docker_compose_cmd);
+        }
+
+        // If docker compose plugin doesn't work, try standalone docker-compose
+        if let Ok(docker_compose_cmd) = try_docker_compose_standalone(&min_version).await {
+            return Ok(docker_compose_cmd);
+        }
+
+        Err(Error::NoDockerComposeExecutable)
+    }
+
+    /// Try to find docker executable and test if it has compose subcommand
+    async fn try_docker_compose_plugin(min_version: &Version) -> Result<String, Error> {
+        // parse the python version from the --version output
+        fn parse_version(output: &str) -> Option<Version> {
+            let version_str = output.rsplit_once('v')?.1.trim();
+            Version::parse(version_str).ok()
+        }
+
+        // Common docker executable names
+        let mut docker_candidates = vec!["docker"];
+
+        // Platform-specific docker candidates
+        #[cfg(target_os = "windows")]
+        {
+            docker_candidates.extend(vec![
+                "docker.exe",
+                "C:\\Program Files\\Docker\\Docker\\resources\\bin\\docker.exe",
+            ]);
+        }
+
+        #[cfg(target_os = "macos")]
+        {
+            docker_candidates.extend(vec![
+                "/usr/local/bin/docker",
+                "/opt/homebrew/bin/docker",
+                "/Applications/Docker.app/Contents/Resources/bin/docker",
+            ]);
+        }
+
+        #[cfg(target_os = "linux")]
+        {
+            docker_candidates.extend(vec![
+                "/usr/bin/docker",
+                "/usr/local/bin/docker",
+                "/snap/bin/docker",
+            ]);
+        }
+
+        for docker_cmd in docker_candidates.iter() {
+            debug!("Checking docker executable: {}", docker_cmd);
+
+            // Test if docker compose version works
+            let output = Command::new(docker_cmd)
+                .args(["compose", "version"])
+                .output()
+                .await;
+
+            if let Ok(output) = output {
+                if output.status.success() {
+                    let version_output = String::from_utf8_lossy(&output.stdout);
+                    debug!("Docker compose version output: {}", version_output);
+
+                    // Parse version from "Docker Compose version v2.36.2"
+                    if let Some(version) = parse_version(&version_output) {
+                        if version >= *min_version {
+                            info!(
+                                "v Found Docker with compose plugin: {} (version: {})",
+                                docker_cmd, version
+                            );
+                            return Ok(docker_cmd.to_string());
+                        } else {
+                            debug!(
+                                "Docker compose version {} is below minimum {}",
+                                version, min_version
+                            );
+                        }
+                    } else {
+                        debug!("Could not parse Docker Compose version from output");
+                    }
+                }
+            } else {
+                debug!(
+                    "Failed to execute docker command '{}': {}",
+                    docker_cmd,
+                    output.unwrap_err()
+                );
+            }
+        }
+
+        Err(Error::NoDockerComposeExecutable)
+    }
+
+    /// Try to find standalone docker-compose executable
+    async fn try_docker_compose_standalone(min_version: &Version) -> Result<String, Error> {
+        // parse the python version from the --version output
+        fn parse_version(output: &str) -> Option<Version> {
+            let version_str = output.rsplit_once(' ')?.1.trim();
+            Version::parse(version_str).ok()
+        }
+
+        // Common docker-compose executable names
+        let mut docker_compose_candidates = vec!["docker-compose"];
+
+        // Platform-specific docker-compose candidates
+        #[cfg(target_os = "windows")]
+        {
+            docker_compose_candidates.extend(vec![
+                "docker-compose.exe",
+                "C:\\Program Files\\Docker\\Docker\\resources\\bin\\docker-compose.exe",
+                "C:\\ProgramData\\DockerDesktop\\version-bin\\docker-compose.exe",
+            ]);
+        }
+
+        #[cfg(target_os = "macos")]
+        {
+            docker_compose_candidates.extend(vec![
+                "/usr/local/bin/docker-compose",
+                "/opt/homebrew/bin/docker-compose",
+                "/Applications/Docker.app/Contents/Resources/bin/docker-compose",
+            ]);
+        }
+
+        #[cfg(target_os = "linux")]
+        {
+            docker_compose_candidates.extend(vec![
+                "/usr/bin/docker-compose",
+                "/usr/local/bin/docker-compose",
+                "/snap/bin/docker-compose",
+            ]);
+        }
+
+        for docker_compose_cmd in docker_compose_candidates.iter() {
+            debug!("Checking docker-compose executable: {}", docker_compose_cmd);
+
+            // Test if docker-compose --version works
+            let output = Command::new(docker_compose_cmd)
+                .arg("--version")
+                .output()
+                .await;
+
+            if let Ok(output) = output {
+                if output.status.success() {
+                    let version_output = String::from_utf8_lossy(&output.stdout);
+                    debug!("Docker-compose version output: {}", version_output);
+
+                    // Parse version from "docker-compose version 1.29.2"
+                    if let Some(version) = parse_version(&version_output) {
+                        if version >= *min_version {
+                            info!(
+                                "Found docker-compose standalone: {} (version: {})",
+                                docker_compose_cmd, version
+                            );
+                            return Ok(docker_compose_cmd.to_string());
+                        } else {
+                            debug!(
+                                "Docker-compose version {} is below minimum {}",
+                                version, min_version
+                            );
+                        }
+                    } else {
+                        debug!("Could not parse docker-compose version from output");
+                    }
+                }
+            }
+        }
+
+        Err(Error::NoDockerComposeExecutable)
     }
 
     /// Get the application data directory. This works on Windows, macOS, and Linux.
@@ -277,7 +454,7 @@ pub mod workshops {
         let workshop_path = data_dir.join(workshop.as_ref());
         if workshop_path.exists() && workshop_path.is_dir() {
             let target_path = workshops_dir.join(workshop.as_ref());
-            info!(
+            debug!(
                 "Copying workshop data from {} to {}",
                 workshop_path.display(),
                 target_path.display()

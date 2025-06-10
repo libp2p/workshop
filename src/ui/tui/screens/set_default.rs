@@ -20,7 +20,7 @@ use ratatui::{
 };
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc::Sender;
-use tracing::{debug, info};
+use tracing::debug;
 
 const TOP_DIALOG_BORDER: Set = Set {
     top_left: "┌",
@@ -165,7 +165,7 @@ impl SetDefault<'_> {
     ) -> Result<(), Error> {
         match event {
             tui::Event::SetDefault(title, yes, no) => {
-                info!("Set as default?");
+                debug!("Set as default?");
                 let spoken = {
                     let status = status.lock().unwrap();
                     status.spoken_language()

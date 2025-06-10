@@ -46,6 +46,10 @@ pub enum Error {
     #[error("No Python executable found")]
     NoPythonExecutable,
 
+    /// No Docker Compose executable found
+    #[error("No Docker Compose executable found")]
+    NoDockerComposeExecutable,
+
     /// Command error
     #[error("Command error: {0}")]
     Command(String),

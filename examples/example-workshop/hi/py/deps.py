@@ -27,29 +27,7 @@ def main():
     all_dependencies_met = True
     
     # Check if rust is installed
-    if not check_command("python3", "3.9"):
-        all_dependencies_met = False
-    
-    # Check if docker is installed
-    if not check_command("docker"):
-        all_dependencies_met = False
-    
-    # Check if docker-compose is installed
-    docker_compose_path = shutil.which("docker-compose") or shutil.which("docker") 
-    
-    if docker_compose_path:
-        # Check if docker compose plugin is available
-        if docker_compose_path == shutil.which("docker"):
-            result = subprocess.run(["docker", "compose", "version"], capture_output=True, text=True)
-            if result.returncode != 0:
-                print("! docker compose plugin is not installed")
-                all_dependencies_met = False
-            else:
-                print("v docker compose is installed")
-        else:
-            print("v docker-compose is installed")
-    else:
-        print("! docker-compose is not installed")
+    if not check_command("python3"):
         all_dependencies_met = False
     
     if all_dependencies_met:

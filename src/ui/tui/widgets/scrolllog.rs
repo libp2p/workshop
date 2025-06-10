@@ -226,7 +226,7 @@ impl StatefulWidget for &mut ScrollLog<'_> {
         // For bottom-up rendering, we need to pad with empty lines at the top
         // if we have fewer lines than the window height
         let mut items: Vec<Line> = Vec::new();
-        
+
         // Add empty lines at the top to push content to bottom
         let lines_to_render = selected_lines.len();
         if lines_to_render < self.window_lines {
@@ -235,7 +235,7 @@ impl StatefulWidget for &mut ScrollLog<'_> {
                 items.push(Line::from(""));
             }
         }
-        
+
         // Add the actual log lines
         for line in selected_lines {
             items.push(Line::from(line));

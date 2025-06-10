@@ -1,12 +1,8 @@
-version: '3'
-
 services:
-  rust-app:
+  lesson:
     build:
-      context: ./app
-    logging:
-      drive: "local"
-      options:
-        max-size: "10m"
-        max-file: "3"
-        log-path: "stdout.log"
+      context: ${PROJECT_ROOT}
+      dockerfile: ${LESSON_PATH}/app/Dockerfile
+    stop_grace_period: 1m
+    volumes:
+      - ${PROJECT_ROOT}/${LESSON_PATH}/stdout.log:/app/stdout.log

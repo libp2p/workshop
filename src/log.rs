@@ -49,16 +49,39 @@ where
     S: Subscriber + for<'a> LookupSpan<'a>,
 {
     fn on_enter(&self, id: &Id, ctx: Context<'_, S>) {
-        // Increase the indent level when entering a span
-        INDENT_LEVEL.with(|level| {
-            *level.borrow_mut() += 1;
-        });
-
         // Log the span enter event
         if let Some(span) = ctx.span(id) {
             let indent = INDENT_LEVEL.with(|l| "  ".repeat(*l.borrow()));
             let name = span.name();
-            let msg = format!("{indent}{name}");
+            let msg = format!("> {indent}{name}");
+            // if a file is provided, write the log message to it
+            if let Ok(mut guard) = self.file.lock() {
+                if let Some(file) = guard.as_mut() {
+                    writeln!(file, "{msg}").unwrap();
+                    let _ = file.flush();
+                }
+            }
+            let _ = self.sender.try_send(msg);
+        }
+
+        // Increase the indent level when entering a span
+        INDENT_LEVEL.with(|level| {
+            *level.borrow_mut() += 1;
+        });
+    }
+
+    fn on_exit(&self, id: &Id, ctx: Context<S>) {
+        // Decrease the indent level when exiting a span
+        INDENT_LEVEL.with(|level| {
+            let mut level = level.borrow_mut();
+            *level = level.saturating_sub(1);
+        });
+
+        if let Some(span) = ctx.span(id) {
+            // Log the span exit event
+            let indent = INDENT_LEVEL.with(|l| "  ".repeat(*l.borrow()));
+            let name = span.name();
+            let msg = format!("< {indent}{name}");
             // if a file is provided, write the log message to it
             if let Ok(mut guard) = self.file.lock() {
                 if let Some(file) = guard.as_mut() {
@@ -70,15 +93,21 @@ where
         }
     }
 
-    fn on_exit(&self, _id: &Id, _ctx: Context<S>) {
-        // Decrease the indent level when exiting a span
-        INDENT_LEVEL.with(|level| {
-            let mut level = level.borrow_mut();
-            *level = level.saturating_sub(1);
-        });
-    }
-
     fn on_event(&self, event: &Event<'_>, _ctx: Context<'_, S>) {
+        fn starts_with_emoji(msg: &str) -> bool {
+            msg.starts_with("* ")
+                || msg.starts_with("v ")
+                || msg.starts_with("x ")
+                || msg.starts_with("r ")
+                || msg.starts_with("y ")
+                || msg.starts_with("n ")
+                || msg.starts_with("! ")
+                || msg.starts_with("^ ")
+                || msg.starts_with("i ")
+                || msg.starts_with("> ")
+                || msg.starts_with("< ")
+        }
+
         let mut visitor = FieldVisitor { message: None };
         event.record(&mut visitor);
 
@@ -86,14 +115,19 @@ where
         let indent = INDENT_LEVEL.with(|l| "  ".repeat(*l.borrow()));
         let level = *event.metadata().level();
         let message = visitor.message.unwrap_or_default();
-        let emoji = match level {
-            tracing::Level::ERROR => "! ",
-            tracing::Level::WARN => "^ ",
-            tracing::Level::INFO => "i ",
-            tracing::Level::DEBUG => "",
-            tracing::Level::TRACE => "",
+
+        let msg = if starts_with_emoji(&message) {
+            format!("{}{}{}", &message[0..2], indent, &message[2..])
+        } else {
+            let emoji = match level {
+                tracing::Level::ERROR => "! ",
+                tracing::Level::WARN => "^ ",
+                tracing::Level::INFO => "i ",
+                tracing::Level::DEBUG => "  ",
+                tracing::Level::TRACE => "  ",
+            };
+            format!("{emoji}{indent}{message}")
         };
-        let msg = format!("{emoji}{indent}{message}");
 
         // if a file is provided, write the log message to it
         if let Ok(mut guard) = self.file.lock() {

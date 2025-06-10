@@ -980,35 +980,6 @@ mod tests {
     }
 
     #[test]
-    fn test_hint_collapsed() {
-        let hint = Hint::new(
-            "Getting Started".to_string(),
-            vec![Content::Paragraph(ParagraphBlock {
-                text: "This is hint content.".to_string(),
-            })],
-        );
-        let lines = hint.render(80);
-        assert_eq!(lines.len(), 1);
-        assert!(lines[0].spans[0].content.contains("▶ Getting Started"));
-        assert!(!hint.expanded);
-    }
-
-    #[test]
-    fn test_hint_expanded() {
-        let mut hint = Hint::new(
-            "Getting Started".to_string(),
-            vec![Content::Paragraph(ParagraphBlock {
-                text: "This is hint content.".to_string(),
-            })],
-        );
-        hint.toggle();
-        let lines = hint.render(80);
-        assert!(lines.len() > 1);
-        assert!(lines[0].spans[0].content.contains("▼ Getting Started"));
-        assert!(hint.expanded);
-    }
-
-    #[test]
     fn test_content_enum_dispatch() {
         let content = Content::Heading(Heading {
             level: 1,

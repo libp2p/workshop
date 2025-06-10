@@ -20,7 +20,7 @@ use ratatui::{
 };
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc::Sender;
-use tracing::{debug, info};
+use tracing::debug;
 
 const TOP_DIALOG_BORDER: Set = Set {
     top_left: "┌",
@@ -248,7 +248,7 @@ impl Programming<'_> {
                 match spoken_language {
                     Some(spoken_language) => {
                         if let Some(programming_languages) = all_languages.get(&spoken_language) {
-                            info!("Changing programming language");
+                            debug!("Changing programming language");
                             self.init(programming_languages, programming, allow_any, next)
                                 .await?;
                             to_ui
@@ -270,7 +270,7 @@ impl Programming<'_> {
                             all_languages.values().flatten().cloned().collect();
                         programming_languages.sort();
                         programming_languages.dedup();
-                        info!("Changing programming language");
+                        debug!("Changing programming language");
                         self.init(&programming_languages, programming, allow_any, next)
                             .await?;
                         to_ui
