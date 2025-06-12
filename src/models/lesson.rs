@@ -105,6 +105,25 @@ impl LessonData {
         // try to load the metadata, if it fails, return the error
         metadata.try_load().await.cloned()
     }
+
+    /// updates the lesson status and saves it to the lesson.yaml file
+    pub async fn update_status(&self, new_status: Status) -> Result<(), Error> {
+        let mut metadata = self.metadata.write().await;
+
+        // Ensure metadata is loaded
+        let mut lesson = metadata.try_load().await.cloned()?;
+        lesson.status = new_status;
+
+        // Save the updated metadata back to the file
+        let lesson_yaml_path = self.path.join("lesson.yaml");
+        let content = serde_yaml::to_string(&lesson)?;
+        std::fs::write(&lesson_yaml_path, content)?;
+
+        // Update the cached metadata
+        *metadata = crate::fs::LazyLoader::Loaded(lesson);
+
+        Ok(())
+    }
 }
 
 #[async_trait::async_trait]

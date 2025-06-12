@@ -7,11 +7,34 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
+    fmt,
     path::{Path, PathBuf},
     sync::Arc,
 };
 use tokio::sync::RwLock;
 use tracing::trace;
+
+/// Represents the status of a Workshop
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+pub enum WorkshopStatus {
+    /// The workshop is not started
+    #[default]
+    NotStarted,
+    /// The workshop is in progress
+    InProgress,
+    /// The workshop is completed
+    Completed,
+}
+
+impl fmt::Display for WorkshopStatus {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            WorkshopStatus::NotStarted => write!(f, "Not Started"),
+            WorkshopStatus::InProgress => write!(f, "In Progress"),
+            WorkshopStatus::Completed => write!(f, "Completed"),
+        }
+    }
+}
 
 /// Represents a workshop's metadata
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -22,6 +45,8 @@ pub struct Workshop {
     pub license: String,
     pub homepage: String,
     pub difficulty: String,
+    #[serde(default)]
+    pub status: WorkshopStatus,
 }
 
 /// Represents the default spoken and programming language for a workshop
@@ -504,6 +529,42 @@ impl WorkshopData {
             .join(spoken.to_string())
             .join(programming.to_string())
             .join(lesson_name))
+    }
+
+    /// Calculate the workshop status based on lesson completion
+    pub async fn calculate_status(
+        &self,
+        spoken_language: Option<spoken::Code>,
+        programming_language: Option<programming::Code>,
+    ) -> Result<WorkshopStatus, Error> {
+        let lessons = self
+            .get_lessons_data(spoken_language, programming_language)
+            .await?;
+
+        if lessons.is_empty() {
+            return Ok(WorkshopStatus::NotStarted);
+        }
+
+        let mut completed_count = 0;
+        let mut in_progress_count = 0;
+        let total_count = lessons.len();
+
+        for lesson_data in lessons.values() {
+            let lesson = lesson_data.get_metadata().await?;
+            match lesson.status {
+                crate::models::lesson::Status::Completed => completed_count += 1,
+                crate::models::lesson::Status::InProgress => in_progress_count += 1,
+                crate::models::lesson::Status::NotStarted => {}
+            }
+        }
+
+        if completed_count == total_count {
+            Ok(WorkshopStatus::Completed)
+        } else if in_progress_count > 0 || completed_count > 0 {
+            Ok(WorkshopStatus::InProgress)
+        } else {
+            Ok(WorkshopStatus::NotStarted)
+        }
     }
 }
 

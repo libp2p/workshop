@@ -123,15 +123,78 @@ impl Lessons<'_> {
         Ok(())
     }
 
-    // get the lesson titles
+    // get the lesson titles with status indicators
     async fn get_titles(&mut self) -> Result<Vec<String>, Error> {
         info!("Caching lesson titles");
         self.titles_map.clear();
+
+        // Get lessons in sorted order
+        let mut lessons_with_metadata: Vec<(String, crate::models::lesson::Lesson)> = Vec::new();
         for (key, ld) in self.lessons.iter() {
             let lesson = ld.get_metadata().await?;
-            self.titles_map.insert(lesson.title.clone(), key.clone());
+            lessons_with_metadata.push((key.clone(), lesson));
         }
-        Ok(self.titles_map.keys().cloned().collect())
+
+        // Sort by lesson key (which includes ordering like 01-, 02-, etc.)
+        lessons_with_metadata.sort_by(|a, b| a.0.cmp(&b.0));
+
+        let mut titles = Vec::new();
+        for (key, lesson) in lessons_with_metadata.iter() {
+            let status_indicator = match lesson.status {
+                crate::models::lesson::Status::Completed => "✅",
+                crate::models::lesson::Status::InProgress => "⚙️",
+                crate::models::lesson::Status::NotStarted => "  ",
+            };
+
+            let title_with_status = format!("{} {}", status_indicator, lesson.title);
+            self.titles_map
+                .insert(title_with_status.clone(), key.clone());
+            titles.push(title_with_status);
+        }
+
+        Ok(titles)
+    }
+
+    // check if a lesson can be selected based on its index
+    async fn can_select_lesson(&self, lesson_index: usize) -> Result<bool, Error> {
+        let lesson_keys = self.get_lesson_keys();
+
+        // First lesson can always be selected
+        if lesson_index == 0 {
+            return Ok(true);
+        }
+
+        // For other lessons, check if the previous lesson is completed
+        if lesson_index > 0 && lesson_index < lesson_keys.len() {
+            let prev_lesson_key = &lesson_keys[lesson_index - 1];
+            if let Some(prev_lesson_data) = self.lessons.get(prev_lesson_key) {
+                let prev_lesson = prev_lesson_data.get_metadata().await?;
+                return Ok(matches!(
+                    prev_lesson.status,
+                    crate::models::lesson::Status::Completed
+                ));
+            }
+        }
+
+        Ok(false)
+    }
+
+    // check if a lesson has been completed
+    async fn is_lesson_completed(&self, lesson_index: usize) -> Result<bool, Error> {
+        let lesson_keys = self.get_lesson_keys();
+
+        if lesson_index < lesson_keys.len() {
+            let lesson_key = &lesson_keys[lesson_index];
+            if let Some(lesson_data) = self.lessons.get(lesson_key) {
+                let lesson = lesson_data.get_metadata().await?;
+                return Ok(matches!(
+                    lesson.status,
+                    crate::models::lesson::Status::Completed
+                ));
+            }
+        }
+
+        Ok(false)
     }
 
     // cached selected lesson data
@@ -420,9 +483,21 @@ impl Lessons<'_> {
                     };
                 }
                 KeyCode::Enter => {
-                    to_ui
-                        .send((None, tui::Event::SetLesson(self.get_selected_lesson_key())).into())
-                        .await?;
+                    if let Some(selected_index) = self.titles_state.selected() {
+                        // Check if the lesson can be selected and is not completed
+                        let can_select = self.can_select_lesson(selected_index).await?;
+                        let is_completed = self.is_lesson_completed(selected_index).await?;
+
+                        if can_select && !is_completed {
+                            to_ui
+                                .send(
+                                    (None, tui::Event::SetLesson(self.get_selected_lesson_key()))
+                                        .into(),
+                                )
+                                .await?;
+                        }
+                        // If lesson cannot be selected or is completed, do nothing (ignore the input)
+                    }
                 }
                 _ => {}
             }

@@ -168,14 +168,40 @@ impl Workshops<'_> {
         Ok(())
     }
 
-    // get the workshop titles
+    // get the workshop titles with status indicators
     async fn get_titles(&mut self) -> Result<Vec<String>, Error> {
         debug!("Caching workshop titles");
         self.titles_map.clear();
+
+        // Get workshops with their calculated status
+        let mut workshops_with_status: Vec<(
+            String,
+            String,
+            crate::models::workshop::WorkshopStatus,
+        )> = Vec::new();
         for (key, wd) in self.workshops.iter() {
             let workshop = wd.get_metadata(self.spoken_language).await?;
-            self.titles_map.insert(workshop.title.clone(), key.clone());
+            let status = wd
+                .calculate_status(self.spoken_language, self.programming_language)
+                .await?;
+            workshops_with_status.push((key.clone(), workshop.title.clone(), status));
         }
+
+        // Sort by workshop title
+        workshops_with_status.sort_by(|a, b| a.1.cmp(&b.1));
+
+        for (key, title, status) in workshops_with_status.iter() {
+            let status_indicator = match status {
+                crate::models::workshop::WorkshopStatus::Completed => "✅",
+                crate::models::workshop::WorkshopStatus::InProgress => "⚙️",
+                crate::models::workshop::WorkshopStatus::NotStarted => "  ",
+            };
+
+            let title_with_status = format!("{} {}", status_indicator, title);
+            self.titles_map
+                .insert(title_with_status.clone(), key.clone());
+        }
+
         Ok(self.titles_map.keys().cloned().collect())
     }
 
