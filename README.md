@@ -1,9 +1,11 @@
+![libp2p](https://raw.githubusercontent.com/libp2p/workshop/main/libp2p.png)
+
 # Workshop Tool
 
-![Workshop Demo Rust](https://raw.githubusercontent.com/dhuseby/workshop/main/rust.gif)
+![Workshop Demo Rust](https://raw.githubusercontent.com/libp2p/workshop/main/rust.gif)
 This demonstrates Workshop running in a Neovim terminal and completing the example workshop.
 
-![Workshop Demo Python](https://raw.githubusercontent.com/dhuseby/workshop/main/python.gif)
+![Workshop Demo Python](https://raw.githubusercontent.com/libp2p/workshop/main/python.gif)
 This demonstrates the same thing except using Python instead of Rust.
 
 A command-line tool for managing and running programming workshops. This application provides a Terminal User Interface (TUI) for browsing and completing workshops with interactive lessons.
