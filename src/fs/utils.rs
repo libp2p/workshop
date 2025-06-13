@@ -312,13 +312,17 @@ pub mod application {
 
     /// Get the application data directory. This works on Windows, macOS, and Linux.
     pub fn data_dir() -> Result<PathBuf, Error> {
-        let data_dir = directories::ProjectDirs::from(
-            APPLICATION_PARTS[0],
-            APPLICATION_PARTS[1],
-            APPLICATION_PARTS[2],
-        )
-        .map(|dirs| dirs.data_dir().to_path_buf())
-        .ok_or(FsError::ApplicationDirsNotFound)?;
+        let data_dir = if let Ok(workshops_dir) = std::env::var("WORKSHOPS_DIR") {
+            PathBuf::from(workshops_dir)
+        } else {
+            directories::ProjectDirs::from(
+                APPLICATION_PARTS[0],
+                APPLICATION_PARTS[1],
+                APPLICATION_PARTS[2],
+            )
+            .map(|dirs| dirs.data_dir().to_path_buf())
+            .ok_or(FsError::ApplicationDirsNotFound)?
+        };
 
         // create the data directory if it doesn't exist
         std::fs::create_dir_all(&data_dir)?;
