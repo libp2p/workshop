@@ -1,7 +1,7 @@
 use crate::{
     fs::{Error as FsError, LazyLoader, TryLoad},
     languages::{programming, spoken},
-    models::{Error as ModelError, LessonData},
+    models::{lesson, Error as ModelError, LessonData},
     Error,
 };
 use serde::{Deserialize, Serialize};
@@ -16,7 +16,7 @@ use tracing::trace;
 
 /// Represents the status of a Workshop
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
-pub enum WorkshopStatus {
+pub enum Status {
     /// The workshop is not started
     #[default]
     NotStarted,
@@ -26,12 +26,12 @@ pub enum WorkshopStatus {
     Completed,
 }
 
-impl fmt::Display for WorkshopStatus {
+impl fmt::Display for Status {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            WorkshopStatus::NotStarted => write!(f, "Not Started"),
-            WorkshopStatus::InProgress => write!(f, "In Progress"),
-            WorkshopStatus::Completed => write!(f, "Completed"),
+            Status::NotStarted => write!(f, "Not Started"),
+            Status::InProgress => write!(f, "In Progress"),
+            Status::Completed => write!(f, "Completed"),
         }
     }
 }
@@ -45,8 +45,7 @@ pub struct Workshop {
     pub license: String,
     pub homepage: String,
     pub difficulty: String,
-    #[serde(default)]
-    pub status: WorkshopStatus,
+    pub status: Status,
 }
 
 /// Represents the default spoken and programming language for a workshop
@@ -465,6 +464,21 @@ impl WorkshopData {
         Ok(lessons_data)
     }
 
+    /// Calcualate the path to the workshop.yaml file using status languages or defaults
+    pub fn get_workshop_path(&self, status_spoken: Option<spoken::Code>) -> Result<PathBuf, Error> {
+        // Use status languages or fall back to defaults
+        let spoken = status_spoken.unwrap_or(self.defaults.spoken_language);
+
+        // Construct path: {workshop_data_dir}/{workshop_name}/{spoken}/workshop.yaml
+        let data_dir =
+            crate::fs::workshops::data_dir().ok_or(ModelError::WorkshopDataDirNotFound)?;
+
+        Ok(data_dir
+            .join(&self.name)
+            .join(spoken.to_string())
+            .join("workshop.yaml"))
+    }
+
     /// Calculate the path to the deps.py script using status languages or defaults
     pub fn get_deps_script_path(
         &self,
@@ -534,15 +548,19 @@ impl WorkshopData {
     /// Calculate the workshop status based on lesson completion
     pub async fn calculate_status(
         &self,
-        spoken_language: Option<spoken::Code>,
-        programming_language: Option<programming::Code>,
-    ) -> Result<WorkshopStatus, Error> {
+        status_spoken: Option<spoken::Code>,
+        status_programming: Option<programming::Code>,
+    ) -> Result<Status, Error> {
+        // Use status languages or fall back to defaults
+        let spoken = status_spoken.unwrap_or(self.defaults.spoken_language);
+        let programming = status_programming.unwrap_or(self.defaults.programming_language);
+
         let lessons = self
-            .get_lessons_data(spoken_language, programming_language)
+            .get_lessons_data(Some(spoken), Some(programming))
             .await?;
 
         if lessons.is_empty() {
-            return Ok(WorkshopStatus::NotStarted);
+            return Ok(Status::NotStarted);
         }
 
         let mut completed_count = 0;
@@ -552,19 +570,63 @@ impl WorkshopData {
         for lesson_data in lessons.values() {
             let lesson = lesson_data.get_metadata().await?;
             match lesson.status {
-                crate::models::lesson::Status::Completed => completed_count += 1,
-                crate::models::lesson::Status::InProgress => in_progress_count += 1,
-                crate::models::lesson::Status::NotStarted => {}
+                lesson::Status::Completed => completed_count += 1,
+                lesson::Status::InProgress => in_progress_count += 1,
+                lesson::Status::NotStarted => {}
             }
         }
 
         if completed_count == total_count {
-            Ok(WorkshopStatus::Completed)
+            Ok(Status::Completed)
         } else if in_progress_count > 0 || completed_count > 0 {
-            Ok(WorkshopStatus::InProgress)
+            Ok(Status::InProgress)
         } else {
-            Ok(WorkshopStatus::NotStarted)
+            Ok(Status::NotStarted)
         }
+    }
+
+    /// updates the workshop status and saves it to the workshop.yaml file
+    pub async fn update_status(
+        &self,
+        status_spoken: Option<spoken::Code>,
+        new_status: Status,
+    ) -> Result<(), Error> {
+        // Use status languages or fall back to defaults
+        let spoken = status_spoken.unwrap_or(self.defaults.spoken_language);
+
+        trace!(
+            "(engine) WorkshopData::update_status({}, {new_status})",
+            spoken.get_name_in_english()
+        );
+        if self.metadata.is_empty() {
+            return Err(ModelError::WorkshopNoMetadata.into());
+        }
+
+        let mut metadata = self
+            .metadata
+            .get(&spoken)
+            .ok_or::<Error>(
+                ModelError::WorkshopSpokenLanguageNotFound(
+                    spoken.get_name_in_english().to_string(),
+                )
+                .into(),
+            )?
+            .write() // get a write lock on the Arc<RwLock<LazyLoader<Workshop>>>
+            .await;
+
+        // Ensure workshop is loaded
+        let mut workshop = metadata.try_load().await.cloned()?;
+        workshop.status = new_status;
+
+        // Save the updated metadata back to the file
+        let workshop_yaml_path = self.get_workshop_path(Some(spoken))?;
+        let content = serde_yaml::to_string(&workshop)?;
+        std::fs::write(&workshop_yaml_path, content)?;
+
+        // Update the cached metadata
+        *metadata = crate::fs::LazyLoader::Loaded(workshop);
+
+        Ok(())
     }
 }
 
@@ -689,10 +751,10 @@ impl Loader {
                     if let Ok(code) =
                         spoken::Code::try_from(e.file_name().to_string_lossy().as_ref())
                     {
-                        let license_path = e.path().join("workshop.yaml");
+                        let workshop_path = e.path().join("workshop.yaml");
                         Some((
                             code,
-                            Arc::new(RwLock::new(LazyLoader::NotLoaded(license_path))),
+                            Arc::new(RwLock::new(LazyLoader::NotLoaded(workshop_path))),
                         ))
                     } else {
                         None

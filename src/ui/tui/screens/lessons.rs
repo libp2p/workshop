@@ -1,8 +1,8 @@
 use crate::{
     fs,
     languages::{self, programming, spoken},
-    models::{Error as ModelError, Lesson, LessonData},
-    ui::tui::{self, screens, widgets::ScrollText, Screen},
+    models::{lesson, workshop, Error as ModelError, Lesson, LessonData},
+    ui::tui::{self, screens, widgets::ScrollBox, Screen, Screens},
     Error, Status,
 };
 use crossterm::event::{self, KeyCode};
@@ -16,6 +16,7 @@ use ratatui::{
 };
 use std::{
     collections::{BTreeMap, HashMap},
+    fmt,
     sync::{Arc, Mutex},
 };
 use tokio::sync::mpsc::Sender;
@@ -43,6 +44,17 @@ const TOP_BOX_BORDER: Set = Set {
     horizontal_bottom: " ",
 };
 
+const BOTTOM_BOX_BORDER: Set = Set {
+    top_left: "─",
+    top_right: "┤",
+    bottom_left: " ",
+    bottom_right: "│",
+    vertical_left: " ",
+    vertical_right: "│",
+    horizontal_top: "─",
+    horizontal_bottom: " ",
+};
+
 const STATUS_BORDER: Set = Set {
     top_left: " ",
     top_right: " ",
@@ -54,11 +66,22 @@ const STATUS_BORDER: Set = Set {
     horizontal_bottom: "─",
 };
 
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, Hash, Eq, PartialEq)]
 enum FocusedView {
     #[default]
     List,
-    Info,
+    Metadata,
+    Description,
+}
+
+impl fmt::Display for FocusedView {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            FocusedView::List => write!(f, "List"),
+            FocusedView::Metadata => write!(f, "Metadata"),
+            FocusedView::Description => write!(f, "Description"),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Default)]
@@ -75,8 +98,8 @@ pub struct Lessons<'a> {
     titles: List<'a>,
     /// the list state of lesson title
     titles_state: ListState,
-    /// the scrollable info window - requires lifetime for Block
-    st: ScrollText<'a>,
+    /// lesson data boxes
+    boxes: HashMap<FocusedView, ScrollBox<'a>>,
     /// currently focused view
     focused: FocusedView,
     /// the currently selected spoken language
@@ -86,6 +109,19 @@ pub struct Lessons<'a> {
 }
 
 impl Lessons<'_> {
+    /// create a new Lessons instance
+    pub fn new() -> Self {
+        Lessons {
+            boxes: [
+                (FocusedView::Metadata, ScrollBox::default()),
+                (FocusedView::Description, ScrollBox::default()),
+            ]
+            .into_iter()
+            .collect(),
+            ..Default::default()
+        }
+    }
+
     /// set the lessons
     async fn init<S: AsRef<str>>(
         &mut self,
@@ -129,30 +165,33 @@ impl Lessons<'_> {
         self.titles_map.clear();
 
         // Get lessons in sorted order
-        let mut lessons_with_metadata: Vec<(String, crate::models::lesson::Lesson)> = Vec::new();
+        let mut lessons_with_status: Vec<(String, String, lesson::Status)> = Vec::new();
         for (key, ld) in self.lessons.iter() {
             let lesson = ld.get_metadata().await?;
-            lessons_with_metadata.push((key.clone(), lesson));
+            let status = lesson.status.clone();
+            debug!(
+                "lesson key: {key}, title: {}, status: {status}",
+                lesson.title
+            );
+            lessons_with_status.push((key.clone(), lesson.title.clone(), status));
         }
 
         // Sort by lesson key (which includes ordering like 01-, 02-, etc.)
-        lessons_with_metadata.sort_by(|a, b| a.0.cmp(&b.0));
+        lessons_with_status.sort_by(|a, b| a.0.cmp(&b.0));
 
-        let mut titles = Vec::new();
-        for (key, lesson) in lessons_with_metadata.iter() {
-            let status_indicator = match lesson.status {
-                crate::models::lesson::Status::Completed => "✅",
-                crate::models::lesson::Status::InProgress => "⚙️",
-                crate::models::lesson::Status::NotStarted => "  ",
+        for (key, title, status) in lessons_with_status.iter() {
+            let status_indicator = match status {
+                lesson::Status::Completed => "✅ ",
+                lesson::Status::InProgress => "🤔 ",
+                lesson::Status::NotStarted => "   ",
             };
 
-            let title_with_status = format!("{} {}", status_indicator, lesson.title);
+            let title_with_status = format!("{status_indicator}{title}");
             self.titles_map
-                .insert(title_with_status.clone(), key.clone());
-            titles.push(title_with_status);
+                .insert(key.clone(), title_with_status.clone());
         }
 
-        Ok(titles)
+        Ok(self.titles_map.values().cloned().collect())
     }
 
     // check if a lesson can be selected based on its index
@@ -169,10 +208,7 @@ impl Lessons<'_> {
             let prev_lesson_key = &lesson_keys[lesson_index - 1];
             if let Some(prev_lesson_data) = self.lessons.get(prev_lesson_key) {
                 let prev_lesson = prev_lesson_data.get_metadata().await?;
-                return Ok(matches!(
-                    prev_lesson.status,
-                    crate::models::lesson::Status::Completed
-                ));
+                return Ok(matches!(prev_lesson.status, lesson::Status::Completed));
             }
         }
 
@@ -187,10 +223,7 @@ impl Lessons<'_> {
             let lesson_key = &lesson_keys[lesson_index];
             if let Some(lesson_data) = self.lessons.get(lesson_key) {
                 let lesson = lesson_data.get_metadata().await?;
-                return Ok(matches!(
-                    lesson.status,
-                    crate::models::lesson::Status::Completed
-                ));
+                return Ok(matches!(lesson.status, lesson::Status::Completed));
             }
         }
 
@@ -204,27 +237,51 @@ impl Lessons<'_> {
         if let Some(lesson_key) = self.get_selected_lesson_key() {
             if let Some(lesson_data) = self.lessons.get(&lesson_key) {
                 let lesson = lesson_data.get_metadata().await?;
+                for (v, b) in self.boxes.iter_mut() {
+                    match v {
+                        FocusedView::Metadata => b.set_text(format!("Status: {}", lesson.status)),
+                        FocusedView::Description => b.set_text(&lesson.description),
+                        _ => {}
+                    }
+                }
+
                 self.selected = Some(lesson);
+                return Ok(());
             }
         }
+        // set the boxes to default text
+        for (v, b) in self.boxes.iter_mut() {
+            match v {
+                FocusedView::Metadata => {
+                    b.set_text("No lessons support the selected spoken and programming languages")
+                }
+                FocusedView::Description => b.set_text(""),
+                _ => {}
+            }
+        }
+
         Ok(())
     }
 
     async fn first(&mut self) -> Result<(), Error> {
-        match self.focused {
+        match &self.focused {
             FocusedView::List => {
                 if !self.lessons.is_empty() {
                     self.titles_state.select(Some(0));
                     self.cache_selected().await?;
                 }
             }
-            FocusedView::Info => self.st.scroll_top(),
+            view => {
+                if let Some(sb) = self.boxes.get_mut(view) {
+                    sb.scroll_top();
+                }
+            }
         }
         Ok(())
     }
 
     async fn last(&mut self) -> Result<(), Error> {
-        match self.focused {
+        match &self.focused {
             FocusedView::List => {
                 if !self.lessons.is_empty() {
                     let last_index = self.lessons.len() - 1;
@@ -232,13 +289,17 @@ impl Lessons<'_> {
                     self.cache_selected().await?;
                 }
             }
-            FocusedView::Info => self.st.scroll_bottom(),
+            view => {
+                if let Some(sb) = self.boxes.get_mut(view) {
+                    sb.scroll_top();
+                }
+            }
         }
         Ok(())
     }
 
     async fn next(&mut self) -> Result<(), Error> {
-        match self.focused {
+        match &self.focused {
             FocusedView::List => {
                 if !self.lessons.is_empty() {
                     let selected_index = self.titles_state.selected().unwrap_or(0);
@@ -247,13 +308,17 @@ impl Lessons<'_> {
                     self.cache_selected().await?;
                 }
             }
-            FocusedView::Info => self.st.scroll_down(),
+            view => {
+                if let Some(sb) = self.boxes.get_mut(view) {
+                    sb.scroll_down();
+                }
+            }
         }
         Ok(())
     }
 
     async fn prev(&mut self) -> Result<(), Error> {
-        match self.focused {
+        match &self.focused {
             FocusedView::List => {
                 if !self.lessons.is_empty() {
                     let selected_index = self.titles_state.selected().unwrap_or(0);
@@ -266,7 +331,11 @@ impl Lessons<'_> {
                     self.cache_selected().await?;
                 }
             }
-            FocusedView::Info => self.st.scroll_up(),
+            view => {
+                if let Some(sb) = self.boxes.get_mut(view) {
+                    sb.scroll_up();
+                }
+            }
         }
         Ok(())
     }
@@ -282,7 +351,7 @@ impl Lessons<'_> {
 
     // get the sorted list of lesson keys
     fn get_lesson_keys(&self) -> Vec<String> {
-        self.titles_map.values().cloned().collect()
+        self.titles_map.keys().cloned().collect()
     }
 
     /// render the lesson list and info
@@ -322,34 +391,48 @@ impl Lessons<'_> {
 
     /// render the lesson info
     fn render_lesson_info(&mut self, area: Rect, buf: &mut Buffer) {
-        let fg = if self.focused == FocusedView::Info {
-            Color::White
+        let areas: [Rect; 2] =
+            Layout::vertical([Constraint::Percentage(30), Constraint::Percentage(70)]).areas(area);
+
+        self.render_lesson_box(areas[0], buf, FocusedView::Metadata, TOP_BOX_BORDER);
+        self.render_lesson_box(areas[1], buf, FocusedView::Description, BOTTOM_BOX_BORDER);
+    }
+
+    // render the lesson box
+    fn render_lesson_box(
+        &mut self,
+        area: Rect,
+        buf: &mut Buffer,
+        view: FocusedView,
+        border_set: Set,
+    ) {
+        if let Some(b) = self.boxes.get_mut(&view) {
+            let fg = if self.focused == view {
+                Color::White
+            } else {
+                Color::DarkGray
+            };
+
+            let title = Line::from(vec![
+                Span::styled("─", Style::default().fg(Color::DarkGray)),
+                Span::styled(format!("/ {view} /"), Style::default().fg(fg)),
+            ]);
+            let block = Block::default()
+                .title(title)
+                .title_style(Style::default().fg(fg))
+                .padding(Padding::top(1))
+                .style(Style::default().fg(Color::DarkGray))
+                .borders(Borders::LEFT | Borders::TOP | Borders::RIGHT)
+                .border_set(border_set);
+
+            b.block(block);
+            b.style(Style::default().fg(Color::White));
+
+            // render the scroll text
+            Widget::render(b, area, buf);
         } else {
-            Color::DarkGray
-        };
-
-        let mut description = match &self.selected {
-            Some(lesson) => lesson.description.clone(),
-            None => "No lessons support the selected spoken and programming languages".to_string(),
-        };
-
-        let title = Line::from(vec![
-            Span::styled("─", Style::default().fg(Color::DarkGray)),
-            Span::styled("/ Description /", Style::default().fg(fg)),
-        ]);
-        let block = Block::default()
-            .title(title)
-            .title_style(Style::default().fg(fg))
-            .padding(Padding::top(1))
-            .style(Style::default().fg(Color::DarkGray))
-            .borders(Borders::LEFT | Borders::TOP | Borders::RIGHT)
-            .border_set(TOP_BOX_BORDER);
-
-        self.st.block(block);
-        self.st.style(Style::default().fg(Color::White));
-
-        // render the scroll text
-        StatefulWidget::render(&mut self.st, area, buf, &mut description);
+            debug!("No box found for view: {:?}", view);
+        }
     }
 
     // render the status bar at the bottom
@@ -441,7 +524,18 @@ impl Lessons<'_> {
                         languages::programming_name(programming),
                     );
                     let lessons = workshop_data.get_lessons_data(spoken, programming).await?;
-                    let workshop_title = workshop_data.get_metadata(spoken).await?.title;
+                    let workshop_metadata = workshop_data.get_metadata(spoken).await?;
+                    let workshop_title = workshop_metadata.title.clone();
+
+                    // Set lesson status to InProgress if it's NotStarted
+                    debug!("Workshop status: {:?}", workshop_metadata.status);
+                    if matches!(workshop_metadata.status, workshop::Status::NotStarted) {
+                        workshop_data
+                            .update_status(spoken, workshop::Status::InProgress)
+                            .await?;
+                        debug!("Updated workshop status to InProgress: {workshop_title}");
+                    }
+
                     self.init(&lessons, workshop_title, spoken, programming)
                         .await?;
                     to_ui
@@ -473,14 +567,25 @@ impl Lessons<'_> {
                 KeyCode::Char('k') | KeyCode::Char('K') | KeyCode::Up => self.prev().await?,
                 KeyCode::Char('b') | KeyCode::Esc => {
                     to_ui
-                        .send((None, tui::Event::SetWorkshop(None, HashMap::default())).into())
+                        .send((Some(Screens::Workshops), tui::Event::LoadWorkshops).into())
                         .await?;
                 }
                 KeyCode::Tab => {
-                    self.focused = match self.focused {
-                        FocusedView::List => FocusedView::Info,
-                        FocusedView::Info => FocusedView::List,
-                    };
+                    if key.modifiers.contains(event::KeyModifiers::SHIFT) {
+                        // switch focus to the previous view
+                        self.focused = match self.focused {
+                            FocusedView::List => FocusedView::Description,
+                            FocusedView::Metadata => FocusedView::List,
+                            FocusedView::Description => FocusedView::Metadata,
+                        };
+                    } else {
+                        // switch focus to the next view
+                        self.focused = match self.focused {
+                            FocusedView::List => FocusedView::Metadata,
+                            FocusedView::Metadata => FocusedView::Description,
+                            FocusedView::Description => FocusedView::List,
+                        };
+                    }
                 }
                 KeyCode::Enter => {
                     if let Some(selected_index) = self.titles_state.selected() {

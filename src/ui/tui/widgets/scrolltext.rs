@@ -24,9 +24,9 @@ impl fmt::Display for Scroll {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Scroll::Top => write!(f, "Top"),
-            Scroll::MaybeTop(offset) => write!(f, "MaybeTop({})", offset),
-            Scroll::Offset(offset) => write!(f, "Offset({})", offset),
-            Scroll::MaybeBottom(offset) => write!(f, "MaybeBottom({})", offset),
+            Scroll::MaybeTop(offset) => write!(f, "MaybeTop({offset})"),
+            Scroll::Offset(offset) => write!(f, "Offset({offset})"),
+            Scroll::MaybeBottom(offset) => write!(f, "MaybeBottom({offset})"),
             Scroll::Bottom => write!(f, "Bottom"),
         }
     }

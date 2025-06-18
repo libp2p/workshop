@@ -1,7 +1,9 @@
 use crate::{
     languages::spoken,
     ui::tui::{
-        self, screens,
+        self,
+        events::Evt,
+        screens,
         widgets::{ScrollLog, StatusBar, StatusMode},
         Screen,
     },
@@ -21,7 +23,6 @@ use std::{
     sync::{Arc, Mutex, OnceLock},
 };
 use tokio::sync::mpsc::Sender;
-use tracing::info;
 
 const TOP_DIALOG_BORDER: Set = Set {
     top_left: "┌",
@@ -82,6 +83,8 @@ pub struct Log<'a> {
     centered: Rect,
     /// the currently selected spoken language
     spoken_language: Option<spoken::Code>,
+    /// waiting on enter key press
+    on_enter: Option<Evt>,
 }
 
 impl Log<'_> {
@@ -105,6 +108,7 @@ impl Log<'_> {
             area: Rect::default(),
             centered: Rect::default(),
             spoken_language: None,
+            on_enter: None,
         }
     }
 
@@ -126,13 +130,14 @@ impl Log<'_> {
         }
     }
 
-    fn add_message(&mut self, msg: String) {
-        if msg.len() < 2 {
+    fn add_message<S: AsRef<str>>(&mut self, msg: S) {
+        if msg.as_ref().len() < 2 {
             // if the message is too short, we can't determine the type
             return;
         }
 
         // add the message to the log
+        let msg = msg.as_ref().to_string();
         self.log
             .push_back((emoji().get(&msg[0..2]).cloned(), msg[2..].to_string()));
 
@@ -175,12 +180,20 @@ impl Log<'_> {
 
     // render the status bar at the bottom
     fn render_status(&mut self, area: Rect, buf: &mut Buffer) {
-        let line = Line::from(vec![
-            Span::styled("─", Style::default().fg(Color::DarkGray)),
+        let keys = if self.on_enter.is_some() {
+            Span::styled(
+                "/ j,k scroll / ⤒ top / ⤓ bottom / ↵ continue / q quit /",
+                Style::default().fg(Color::White),
+            )
+        } else {
             Span::styled(
                 "/ j,k scroll / ⤒ top / ⤓ bottom / ` back / q quit /",
                 Style::default().fg(Color::White),
-            ),
+            )
+        };
+        let line = Line::from(vec![
+            Span::styled("─", Style::default().fg(Color::DarkGray)),
+            keys,
         ]);
         let block = Block::default()
             .title(line)
@@ -199,7 +212,7 @@ impl Log<'_> {
     pub async fn handle_ui_event(
         &mut self,
         event: tui::Event,
-        to_ui: Sender<screens::Event>,
+        _to_ui: Sender<screens::Event>,
         _status: Arc<Mutex<Status>>,
     ) -> Result<(), Error> {
         match event {
@@ -219,7 +232,7 @@ impl Log<'_> {
             }
             tui::Event::CommandOutput(message, progress) => {
                 // Add to log as before
-                self.add_message(message.clone());
+                self.add_message(&message);
 
                 // Update status bar based on current mode
                 if let Some(progress_val) = progress {
@@ -232,19 +245,15 @@ impl Log<'_> {
                 self.sb.set_blank();
                 if result.success {
                     self.add_message(format!("y {}", result.last_line));
-                    if let Some(success) = success {
-                        to_ui.send(success.into()).await?;
-                    }
+                    self.add_message("< Press ↵ Enter to continue");
+                    self.on_enter = success;
                 } else {
                     self.add_message(format!("n {}", result.last_line));
-                    if let Some(failure) = failure {
-                        to_ui.send(failure.into()).await?;
-                    }
+                    self.add_message("< Press ↵ Enter to continue");
+                    self.on_enter = failure;
                 }
             }
-            _ => {
-                info!("Ignoring UI event: {:?}", event);
-            }
+            _ => {}
         }
         Ok(())
     }
@@ -262,9 +271,11 @@ impl Log<'_> {
                 KeyCode::PageDown => self.st.scroll_newest(),
                 KeyCode::Char('j') | KeyCode::Char('J') | KeyCode::Down => self.st.scroll_newer(),
                 KeyCode::Char('k') | KeyCode::Char('K') | KeyCode::Up => self.st.scroll_older(),
-                KeyCode::Char('`') => {
-                    info!("input event: Hide Log");
-                    to_ui.send((None, tui::Event::ToggleLog).into()).await?
+                KeyCode::Char('`') => to_ui.send((None, tui::Event::ToggleLog).into()).await?,
+                KeyCode::Enter => {
+                    if let Some(on_enter) = self.on_enter.take() {
+                        to_ui.send(on_enter.into()).await?
+                    }
                 }
                 _ => {}
             }

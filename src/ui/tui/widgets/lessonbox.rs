@@ -494,7 +494,7 @@ pub fn parse_markdown(markdown: &str) -> Vec<Content> {
                 }
             }
             Event::Code(code) => {
-                current_text.push_str(&format!("`{}`", code));
+                current_text.push_str(&format!("`{code}`"));
             }
             Event::SoftBreak | Event::HardBreak => {
                 if in_code_block {

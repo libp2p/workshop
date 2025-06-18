@@ -1,7 +1,8 @@
 use crate::{
+    command::CommandResult,
     evt, fs,
     languages::{programming, spoken},
-    models::Error as ModelError,
+    models::{lesson, workshop, Error as ModelError, LessonData},
     ui::tui::{
         self,
         screens::{self, Screens},
@@ -80,11 +81,11 @@ impl Lesson {
     /// check if all lessons in the workshop are completed
     async fn check_all_lessons_completed(
         &self,
-        lessons: &std::collections::HashMap<String, crate::models::LessonData>,
+        lessons: &std::collections::HashMap<String, LessonData>,
     ) -> Result<bool, Error> {
         for lesson_data in lessons.values() {
             let lesson = lesson_data.get_metadata().await?;
-            if !matches!(lesson.status, crate::models::lesson::Status::Completed) {
+            if !matches!(lesson.status, lesson::Status::Completed) {
                 return Ok(false);
             }
         }
@@ -220,12 +221,9 @@ impl Lesson {
                     let lesson_title = lesson_metadata.title.clone();
 
                     // Set lesson status to InProgress if it's NotStarted
-                    if matches!(
-                        lesson_metadata.status,
-                        crate::models::lesson::Status::NotStarted
-                    ) {
+                    if matches!(lesson_metadata.status, lesson::Status::NotStarted) {
                         lesson_data
-                            .update_status(crate::models::lesson::Status::InProgress)
+                            .update_status(lesson::Status::InProgress)
                             .await?;
                         debug!("Updated lesson status to InProgress: {}", lesson_title);
                     }
@@ -268,41 +266,41 @@ impl Lesson {
                 if let Some(workshop_data) = fs::workshops::load(&workshop) {
                     let lessons = workshop_data.get_lessons_data(spoken, programming).await?;
                     if let Some(lesson_data) = lessons.get(&lesson) {
-                        lesson_data
-                            .update_status(crate::models::lesson::Status::Completed)
-                            .await?;
+                        lesson_data.update_status(lesson::Status::Completed).await?;
                         debug!("Updated lesson status to Completed: {}", lesson);
 
                         // Check if all lessons are completed
                         let all_completed = self.check_all_lessons_completed(&lessons).await?;
 
                         if all_completed {
+                            // Set the workshop as complete
+                            workshop_data
+                                .update_status(spoken, workshop::Status::Completed)
+                                .await?;
                             // Return to workshops screen if all lessons are completed
                             let set_workshop = evt!(
                                 None,
                                 tui::Event::SetWorkshop(None, std::collections::HashMap::default())
                             );
                             let hide_log = evt!(None, tui::Event::HideLog(Some(set_workshop)));
-                            let delay = evt!(
-                                None,
-                                tui::Event::Delay(
-                                    std::time::Duration::from_secs(2),
+                            let workshop_complete = evt!(
+                                Screens::Log,
+                                tui::Event::CommandCompleted(
+                                    CommandResult {
+                                        success: true,
+                                        exit_code: 0,
+                                        last_line: "All lessons completed!".to_string()
+                                    },
                                     Some(hide_log),
+                                    None
                                 )
                             );
-                            to_ui.send(delay.into()).await?;
+                            to_ui.send(workshop_complete.into()).await?;
                         } else {
                             // Return to lessons screen to show updated status
                             let load_lessons = evt!(Screens::Lessons, tui::Event::LoadLessons);
                             let hide_log = evt!(None, tui::Event::HideLog(Some(load_lessons)));
-                            let delay = evt!(
-                                None,
-                                tui::Event::Delay(
-                                    std::time::Duration::from_secs(2),
-                                    Some(hide_log),
-                                )
-                            );
-                            to_ui.send(delay.into()).await?;
+                            to_ui.send(hide_log.into()).await?;
                         }
                     }
                 }

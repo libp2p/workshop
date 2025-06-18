@@ -348,8 +348,12 @@ pub mod application {
 
     /// Get all of the workshops data objects for all workshops in the application data directory
     pub fn all_workshops() -> Result<HashMap<String, workshop::WorkshopData>, Error> {
-        let data_dir = data_dir()?;
-        workshops::load_workshop_data(data_dir)
+        let mut workshops_data = workshops::load_workshop_data(data_dir()?)?;
+        if let Some(workshops_dir) = workshops::data_dir() {
+            // If the workshops directory exists, load the workshop data from there
+            workshops_data.extend(workshops::load_workshop_data(workshops_dir)?);
+        }
+        Ok(workshops_data)
     }
 
     /// Get all of the workshops in the application data directory, that support the given spoken

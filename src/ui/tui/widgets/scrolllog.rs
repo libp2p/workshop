@@ -29,9 +29,9 @@ impl fmt::Display for Scroll {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Scroll::Oldest => write!(f, "Oldest"),
-            Scroll::MaybeOldest(offset) => write!(f, "MaybeOldest({})", offset),
-            Scroll::Offset(offset) => write!(f, "Offset({})", offset),
-            Scroll::MaybeNewest(offset) => write!(f, "MaybeNewest({})", offset),
+            Scroll::MaybeOldest(offset) => write!(f, "MaybeOldest({offset})"),
+            Scroll::Offset(offset) => write!(f, "Offset({offset})"),
+            Scroll::MaybeNewest(offset) => write!(f, "MaybeNewest({offset})"),
             Scroll::Newest => write!(f, "Newest"),
         }
     }
@@ -146,7 +146,7 @@ impl StatefulWidget for &mut ScrollLog<'_> {
             // first line includes the emoji
             if let Some(first_line) = wrapped_lines.first() {
                 if let Some(emoji_str) = emoji {
-                    all_lines.push(format!("{:<2}{}", emoji_str, first_line));
+                    all_lines.push(format!("{emoji_str:<2}{first_line}"));
                 } else {
                     all_lines.push(format!("{:<3}{}", "", first_line));
                 }
@@ -167,18 +167,10 @@ impl StatefulWidget for &mut ScrollLog<'_> {
         let scroll_offset_from_end = match self.scroll {
             Scroll::Oldest => {
                 // Show oldest messages (from beginning of all_lines)
-                if self.lines <= self.window_lines {
-                    0 // Show all lines if they fit
-                } else {
-                    self.lines - self.window_lines // Skip newer lines to show oldest
-                }
+                self.lines.saturating_sub(self.window_lines)
             }
             Scroll::MaybeOldest(offset) => {
-                let max_offset = if self.lines > self.window_lines {
-                    self.lines - self.window_lines
-                } else {
-                    0
-                };
+                let max_offset = self.lines.saturating_sub(self.window_lines);
                 if offset <= max_offset {
                     self.scroll = Scroll::Offset(offset);
                     offset
@@ -188,11 +180,7 @@ impl StatefulWidget for &mut ScrollLog<'_> {
                 }
             }
             Scroll::Offset(offset) => {
-                let max_offset = if self.lines > self.window_lines {
-                    self.lines - self.window_lines
-                } else {
-                    0
-                };
+                let max_offset = self.lines.saturating_sub(self.window_lines);
                 offset.min(max_offset)
             }
             Scroll::MaybeNewest(offset) => {

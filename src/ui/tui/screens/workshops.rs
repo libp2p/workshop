@@ -1,7 +1,7 @@
 use crate::{
     evt, fs,
     languages::{self, programming, spoken},
-    models::{Workshop, WorkshopData},
+    models::{workshop, Workshop, WorkshopData},
     ui::tui::{
         self,
         screens::{self, Screens},
@@ -133,6 +133,7 @@ impl Workshops<'_> {
             ..Default::default()
         }
     }
+
     /// set the workshops
     async fn init(
         &mut self,
@@ -174,16 +175,10 @@ impl Workshops<'_> {
         self.titles_map.clear();
 
         // Get workshops with their calculated status
-        let mut workshops_with_status: Vec<(
-            String,
-            String,
-            crate::models::workshop::WorkshopStatus,
-        )> = Vec::new();
+        let mut workshops_with_status: Vec<(String, String, workshop::Status)> = Vec::new();
         for (key, wd) in self.workshops.iter() {
             let workshop = wd.get_metadata(self.spoken_language).await?;
-            let status = wd
-                .calculate_status(self.spoken_language, self.programming_language)
-                .await?;
+            let status = workshop.status.clone();
             workshops_with_status.push((key.clone(), workshop.title.clone(), status));
         }
 
@@ -192,12 +187,12 @@ impl Workshops<'_> {
 
         for (key, title, status) in workshops_with_status.iter() {
             let status_indicator = match status {
-                crate::models::workshop::WorkshopStatus::Completed => "✅",
-                crate::models::workshop::WorkshopStatus::InProgress => "⚙️",
-                crate::models::workshop::WorkshopStatus::NotStarted => "  ",
+                workshop::Status::Completed => "✅ ",
+                workshop::Status::InProgress => "🤔 ",
+                workshop::Status::NotStarted => "   ",
             };
 
-            let title_with_status = format!("{} {}", status_indicator, title);
+            let title_with_status = format!("{status_indicator} {title}");
             self.titles_map
                 .insert(title_with_status.clone(), key.clone());
         }
@@ -225,7 +220,8 @@ impl Workshops<'_> {
 
                 // update the scroll boxes
                 let metadata = format!(
-                    "Authors: {}\nCopyright: {}\nLicense: {}\nHomepage: {}\nDifficulty: {}\nLanguages:\n{}",
+                    "Status: {}\nAuthors: {}\nCopyright: {}\nLicense: {}\nHomepage: {}\nDifficulty: {}\nLanguages:\n{}",
+                    workshop.status,
                     workshop
                         .authors
                         .iter()
@@ -464,7 +460,7 @@ impl Workshops<'_> {
 
             let title = Line::from(vec![
                 Span::styled("─", Style::default().fg(Color::DarkGray)),
-                Span::styled(format!("/ {} /", view), Style::default().fg(fg)),
+                Span::styled(format!("/ {view} /"), Style::default().fg(fg)),
             ]);
             let block = Block::default()
                 .title(title)

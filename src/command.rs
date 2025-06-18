@@ -72,7 +72,7 @@ impl CommandRunner {
 
         // Set environment variables
         for (key, value) in env_vars {
-            debug!("Setting environment variable: {}={}", key, value);
+            debug!("Setting environment variable: {key}={value}");
             command.env(key, value);
         }
 
@@ -87,8 +87,8 @@ impl CommandRunner {
         }
 
         // Send command info to log screen
-        let cmd_info = format!("{} {}", cmd, args.join(" "));
-        debug!("Running command: {}", cmd_info);
+        let cmd_info = format!("{cmd} {}", args.join(" "));
+        debug!("Running command: {cmd_info}");
         self.event_sender
             .send(
                 (
@@ -99,7 +99,6 @@ impl CommandRunner {
             )
             .await?;
 
-        debug!("a");
         // Spawn process with piped stdout/stderr
         let mut child = match command
             .stdout(std::process::Stdio::piped())
@@ -108,14 +107,12 @@ impl CommandRunner {
         {
             Ok(child) => child,
             Err(e) => {
-                error!("Failed to spawn command '{}': {}", cmd, e);
+                error!("Failed to spawn command '{cmd}': {e}");
                 return Err(Error::Command(format!(
-                    "Failed to spawn command '{}': {}",
-                    cmd, e
+                    "Failed to spawn command '{cmd}': {e}"
                 )));
             }
         };
-        debug!("b");
 
         // Handle stdout
         let stdout = child.stdout.take().unwrap();
@@ -132,7 +129,6 @@ impl CommandRunner {
         let mut stderr_finished = false;
         let mut stdout_line: Option<String> = None;
         let mut stderr_line: Option<String> = None;
-        debug!("c");
 
         let exit_status = loop {
             tokio::select! {
@@ -212,7 +208,6 @@ impl CommandRunner {
             exit_code,
             last_line: last_line.clone(),
         };
-        debug!("d");
 
         Ok(result)
     }
@@ -227,7 +222,6 @@ impl CommandRunner {
         token: &CancellationToken,
     ) -> Result<CommandResult, Error> {
         // Calculate PROJECT_ROOT and LESSON_PATH for docker-compose environment
-        debug!("1");
         let (project_root, lesson_path) = self.calculate_docker_env_paths(lesson_dir)?;
 
         // Set up environment variables for docker-compose
@@ -238,11 +232,9 @@ impl CommandRunner {
 
         // Run docker compose up -d --build
         debug!(
-            "Running '{} compose up -d --build' in '{}' with PROJECT_ROOT={} LESSON_PATH={}",
+            "Running '{} compose up -d --build' in '{}' with PROJECT_ROOT={project_root} LESSON_PATH={lesson_path}",
             docker_compose_executable,
             lesson_dir.display(),
-            project_root,
-            lesson_path
         );
         let docker_result = self
             .run_command_with_env(
@@ -254,10 +246,8 @@ impl CommandRunner {
                 false,
             )
             .await?;
-        debug!("2");
 
         if !docker_result.success {
-            debug!("3");
             return Ok(docker_result);
         }
 
@@ -314,21 +304,16 @@ impl CommandRunner {
             }
         };
 
-        debug!("A");
-
         // PROJECT_ROOT is the parent of .workshops directory
         let project_root = workshops_dir
             .parent()
             .ok_or_else(|| Error::Command("Could not find PROJECT_ROOT directory".to_string()))?;
-
-        debug!("B");
 
         // LESSON_PATH is the relative path from PROJECT_ROOT to lesson_dir
         let lesson_path = lesson_dir
             .strip_prefix(project_root)
             .map_err(|_| Error::Command("Could not calculate LESSON_PATH".to_string()))?;
 
-        debug!("C");
         Ok((
             project_root.to_string_lossy().to_string(),
             lesson_path.to_string_lossy().to_string(),

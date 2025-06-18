@@ -10,6 +10,7 @@ use crate::{
 };
 use crossterm::event::{self, EventStream, KeyCode};
 use futures::{future::FutureExt, StreamExt};
+use futures_timer::Delay;
 use ratatui::{buffer::Buffer, layout::Rect, widgets::Widget};
 use std::{
     collections::HashMap,
@@ -17,6 +18,7 @@ use std::{
         atomic::{AtomicBool, AtomicU8, Ordering},
         Arc, Mutex,
     },
+    time::Duration,
 };
 use tokio::{
     select,
@@ -108,7 +110,7 @@ impl App {
         );
 
         // Lessons Screen
-        screens.insert(Screens::Lessons, Box::new(screens::Lessons::default()));
+        screens.insert(Screens::Lessons, Box::new(screens::Lessons::new()));
 
         // Lesson Screen
         screens.insert(Screens::Lesson, Box::new(screens::Lesson::default()));
@@ -193,6 +195,9 @@ impl App {
         // initialize the input event stream
         let mut reader = EventStream::new();
 
+        // the timeout
+        let mut timeout = Delay::new(Duration::from_secs(600));
+
         // try to get the python executable and minimum version from the status
         if self.detect_python().await.is_err() {
             error!("Failed to detect Python executable or version");
@@ -232,13 +237,9 @@ impl App {
                     evt!(Screens::Lesson, tui::Event::LoadLesson)
                 };
                 let hide_log = evt!(None, tui::Event::HideLog(Some(load)));
-                let delay = evt!(
-                    None,
-                    tui::Event::Delay(std::time::Duration::from_secs(2), Some(hide_log),)
-                );
                 let check_deps = evt!(
                     None,
-                    tui::Event::CheckDeps(workshop.to_string(), Some(delay), None,),
+                    tui::Event::CheckDeps(workshop.to_string(), Some(hide_log), None,),
                 );
                 let show_log = evt!(None, tui::Event::ShowLog(Some(check_deps)));
                 self.sender.send(show_log.into()).await?;
@@ -274,11 +275,22 @@ impl App {
                     self.handle_event(evt, self.sender.clone(), self.status.clone()).await?;
                 }
 
+                // check the timeout
+                _ = &mut timeout => {}
+
                 // check if we should quit
                 _ = self.token.cancelled() => {
                     debug!("cancelation token triggered, quitting...");
                     break 'run;
                 }
+            }
+
+            if self.log.load(Ordering::SeqCst) {
+                // if the log is visible, set a timer to redraw the UI @ 60 FPS
+                timeout = Delay::new(Duration::from_secs_f64(1.0 / 60.0));
+            } else {
+                // otherwise set the timer to 10 minutes
+                timeout = Delay::new(Duration::from_secs(600));
             }
 
             // render the UI
@@ -566,16 +578,9 @@ impl App {
                             }
                             let load_lessons = evt!(Screens::Lessons, tui::Event::LoadLessons);
                             let hide_log = evt!(None, tui::Event::HideLog(Some(load_lessons)));
-                            let delay = evt!(
-                                None,
-                                tui::Event::Delay(
-                                    std::time::Duration::from_secs(2),
-                                    Some(hide_log),
-                                )
-                            );
                             let check_deps = evt!(
                                 None,
-                                tui::Event::CheckDeps(workshop.clone(), Some(delay), None,),
+                                tui::Event::CheckDeps(workshop.clone(), Some(hide_log), None,),
                             );
                             let show_log = evt!(None, tui::Event::ShowLog(Some(check_deps)));
                             to_ui.send(show_log.into()).await?;
@@ -745,7 +750,7 @@ impl App {
                         if let Some(workshop_data) = fs::workshops::load(&workshop) {
                             let running = evt!(
                                 Screens::Log,
-                                tui::Event::Log(format!("r Running solution check: {}", lesson,))
+                                tui::Event::Log(format!("r Running solution check: {lesson}"))
                             );
                             to_ui.send(running.into()).await?;
 
@@ -866,8 +871,7 @@ impl App {
                             return screen.handle_event(event.into(), to_ui, status).await;
                         } else {
                             return Err(Error::Tui(format!(
-                                "Unknown screen type: {}",
-                                current_screen
+                                "Unknown screen type: {current_screen}",
                             )));
                         }
                     }

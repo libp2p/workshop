@@ -17,7 +17,7 @@ async fn main() -> Result<()> {
 
     // Check for errors
     if let Err(e) = app_result {
-        eprintln!("App error: {}", e);
+        eprintln!("App error: {e}");
     }
 
     Ok(())
