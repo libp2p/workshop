@@ -234,7 +234,8 @@ impl App {
         // send the correct initial message to restore the state
         let event = match (workshop, lesson) {
             (None, _) => {
-                evt!(Screens::Workshops, tui::Event::LoadWorkshops)
+                let load_workshops = evt!(Screens::Workshops, tui::Event::LoadWorkshops);
+                evt!(None, tui::Event::HideLog(Some(load_workshops)))
             }
             (Some(workshop), lesson) => {
                 // re-runs the deps.py check and if it succeeds will drop you back into the lesson
@@ -244,11 +245,10 @@ impl App {
                     evt!(Screens::Lesson, tui::Event::LoadLesson)
                 };
                 let hide_log = evt!(None, tui::Event::HideLog(Some(load)));
-                let check_deps = evt!(
+                evt!(
                     None,
                     tui::Event::CheckDeps(workshop.to_string(), Some(hide_log), None,),
-                );
-                evt!(None, tui::Event::ShowLog(Some(check_deps)))
+                )
             }
         };
 
@@ -256,8 +256,7 @@ impl App {
         if let Some(install) = install {
             // if we are installing a workshop, send the install event
             let install_event = evt!(None, tui::Event::InstallWorkshop(install, event.into()));
-            let show_log = evt!(None, tui::Event::ShowLog(Some(install_event)));
-            self.sender.send(show_log.into()).await?;
+            self.sender.send(install_event.into()).await?;
         } else {
             self.sender.send(event.into()).await?;
         }
@@ -636,8 +635,7 @@ impl App {
                                 None,
                                 tui::Event::CheckDeps(workshop.clone(), Some(hide_log), None,),
                             );
-                            let show_log = evt!(None, tui::Event::ShowLog(Some(check_deps)));
-                            to_ui.send(show_log.into()).await?;
+                            to_ui.send(check_deps.into()).await?;
                         }
                     } else {
                         debug!("Clearing workshop");
@@ -695,6 +693,9 @@ impl App {
                         };
 
                         let py_exe = python_executable.ok_or(fs::Error::NoPythonExecutable)?;
+
+                        let show_log = evt!(None, tui::Event::ShowLog(None));
+                        to_ui.send(show_log.into()).await?;
 
                         let running = evt!(
                             Screens::Log,
@@ -802,6 +803,9 @@ impl App {
                     // Check if we have required workshop and lesson
                     if let (Some(workshop), Some(lesson)) = (workshop, lesson) {
                         if let Some(workshop_data) = fs::workshops::load(&workshop) {
+                            let show_log = evt!(None, tui::Event::ShowLog(None));
+                            to_ui.send(show_log.into()).await?;
+
                             let running = evt!(
                                 Screens::Log,
                                 tui::Event::Log(format!("r Running solution check: {lesson}"))
@@ -885,6 +889,9 @@ impl App {
                     };
                     let git_exe = git_executable.ok_or(fs::Error::NoGitExecutable)?;
 
+                    let show_log = evt!(None, tui::Event::ShowLog(None));
+                    to_ui.send(show_log.into()).await?;
+
                     let running = evt!(
                         Screens::Log,
                         tui::Event::Log(format!("r Installing workshop from: {url}",))
@@ -912,7 +919,7 @@ impl App {
                                             tui::Event::CommandCompleted(
                                                 result,
                                                 next.clone(),
-                                                next,
+                                                next.clone(),
                                             ),
                                         )
                                             .into(),

@@ -536,7 +536,9 @@ pub mod workshops {
                 workshop_path.display(),
                 target_path.display()
             );
-            copy_tree(workshop_path, target_path)?;
+            if !target_path.exists() {
+                copy_tree(workshop_path, target_path)?;
+            }
         } else {
             return Err(fs::Error::WorkshopDataDirNotFound.into());
         }

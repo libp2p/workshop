@@ -349,8 +349,7 @@ impl Lesson {
                         None,
                         tui::Event::CheckSolution(Some(success), Some(failure)),
                     );
-                    let show_log = evt!(None, tui::Event::ShowLog(Some(check_solution)));
-                    to_ui.send(show_log.into()).await?;
+                    to_ui.send(check_solution.into()).await?;
                 }
                 KeyCode::Char('b') | KeyCode::Esc => {
                     to_ui
