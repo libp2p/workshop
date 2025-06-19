@@ -426,9 +426,9 @@ impl Workshops<'_> {
     /// render the workshop info
     fn render_workshop_info(&mut self, area: Rect, buf: &mut Buffer) {
         let areas: [Rect; 3] = Layout::vertical([
-            Constraint::Percentage(33),
-            Constraint::Percentage(33),
-            Constraint::Percentage(34),
+            Constraint::Percentage(25),
+            Constraint::Percentage(50),
+            Constraint::Percentage(25),
         ])
         .flex(Flex::End)
         .areas(area);

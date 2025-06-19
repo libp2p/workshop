@@ -308,11 +308,7 @@ impl Lesson {
             tui::Event::SolutionIncomplete => {
                 let load_lesson = evt!(Screens::Lesson, tui::Event::LoadLesson);
                 let hide_log = evt!(None, tui::Event::HideLog(Some(load_lesson)));
-                let delay = evt!(
-                    None,
-                    tui::Event::Delay(std::time::Duration::from_secs(2), Some(hide_log),)
-                );
-                to_ui.send(delay.into()).await?;
+                to_ui.send(hide_log.into()).await?;
             }
             _ => {
                 info!("Ignoring UI event: {:?}", event);
