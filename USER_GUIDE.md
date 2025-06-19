@@ -2,9 +2,13 @@
 
 The `workshop` program is a command-line tool for running programming workshops. This application provides a Terminal User Interface (TUI) for browsing and completing workshops with interactive lessons.
 
+## Prerequisites
+
+The `workshop` application requires a terminal that supports ANSI escape codes. This is typically any modern terminal on Linux, macOS, or Windows. The application also requires Docker to be installed on your system, as it uses Docker to run the lessons in isolated environments. You must have Git installed on your system if you wish to install workshops from a repository URL. Lastly, you must have Python 3.10 or newer installed on your system, as the `workshop` applicataion relies upon Python scripts for checking solutions.
+
 ## Quick Start
 
-Running the `workshop` program initially presents you with the workshop selection screen that lists all of the workshops available to you. Currently the workshops are stored in the `/home/<username>/.local/share/workshop` folder on Linux, in `/Users/<username>/Library/Application Support/io.libp2p.workshop` folder on macOS, and in the `C:\Users\<username>\AppData\Roaming\io\libp2p\workshop\data` folder on Windows. Adding more workshops is a manual process involving downloading them and extracting them into the folders just listed.
+Running the `workshop` program initially presents you with the workshop selection screen that lists all of the workshops available to you. Currently the workshops are stored in the `/home/<username>/.local/share/workshop` folder on Linux, in `/Users/<username>/Library/Application Support/io.libp2p.workshop` folder on macOS, and in the `C:\Users\<username>\AppData\Roaming\io\libp2p\workshop\data` folder on Windows. Adding more workshops is done by running `workshop --install <repo-url>` where `<repo-url>` is the URL of the workshop repository. The `workshop` application will clone the repository into the appropriate folder and make it available in the workshop selection screen.
 
 In the workshop selection screen, you can navigate through the list of available workshops using the arrow keys. The right side of the UI displays the information about the currently highlighted workshop. This includes the title, author, copyright, license, and a description of the workshop. The description also includes the setup instructions for the workshop. This typically include creatin a new project folder for your chosen programming language or cloning a repository. Once you have followed the setup instructions, exit the `workshop` application, change into the project directory and re-run the `workshop` program. This will again take you to the workshop selection screen. By pressing the `Enter` key, you can select a workshop and start working through the lessons in the project folder.
 

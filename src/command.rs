@@ -201,7 +201,7 @@ impl CommandRunner {
 
         let success = exit_status.success();
         let exit_code = exit_status.code().unwrap_or(-1);
-        let last_line = stdout_line.unwrap_or_default();
+        let last_line = stdout_line.unwrap_or_else(|| stderr_line.unwrap_or_default());
 
         let result = CommandResult {
             success,
@@ -277,6 +277,31 @@ impl CommandRunner {
             python_executable.as_ref(),
             &[deps_script.to_str().unwrap()],
             Some(script_dir),
+            token,
+            true,
+        )
+        .await
+    }
+
+    /// Run git to clone a repository to our application data directory
+    pub async fn install_workshop(
+        &self,
+        git_executable: &str,
+        repo_url: &str,
+        data_dir: &Path,
+        token: &CancellationToken,
+    ) -> Result<CommandResult, Error> {
+        debug!(
+            "Running '{} clone {}' into '{}'",
+            git_executable,
+            repo_url,
+            data_dir.display()
+        );
+
+        self.run_command(
+            git_executable.as_ref(),
+            &["clone", "--depth", "1", repo_url],
+            Some(data_dir),
             token,
             true,
         )

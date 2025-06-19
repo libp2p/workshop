@@ -1,5 +1,5 @@
 use crate::{
-    fs::Error as FsError,
+    fs,
     languages::{programming, spoken},
     models::workshop,
     Error,
@@ -26,7 +26,7 @@ pub mod application {
         }
 
         let min_version =
-            Version::parse(min_version.as_ref()).map_err(|_| Error::NoPythonExecutable)?;
+            Version::parse(min_version.as_ref()).map_err(|_| fs::Error::NoPythonExecutable)?;
 
         // Common Python executable names
         let mut candidates = vec!["python3", "python", "py"];
@@ -128,15 +128,15 @@ pub mod application {
             }
         }
 
-        Err(Error::NoPythonExecutable)
+        Err(fs::Error::NoPythonExecutable.into())
     }
 
     /// Try to get the path to the docker compose executable
     pub async fn find_docker_compose_executable<S: AsRef<str>>(
         min_version: S,
     ) -> Result<String, Error> {
-        let min_version =
-            Version::parse(min_version.as_ref()).map_err(|_| Error::NoDockerComposeExecutable)?;
+        let min_version = Version::parse(min_version.as_ref())
+            .map_err(|_| fs::Error::NoDockerComposeExecutable)?;
 
         // First, try to find docker executable and test if it has compose subcommand
         if let Ok(docker_compose_cmd) = try_docker_compose_plugin(&min_version).await {
@@ -148,7 +148,76 @@ pub mod application {
             return Ok(docker_compose_cmd);
         }
 
-        Err(Error::NoDockerComposeExecutable)
+        Err(fs::Error::NoDockerComposeExecutable.into())
+    }
+
+    /// Try to find git executable and test if it has the required version
+    pub async fn find_git_executable<S: AsRef<str>>(min_version: S) -> Result<String, Error> {
+        // parse the git version from the --version output
+        fn parse_version(output: &str) -> Option<Version> {
+            let version_str = output.rsplit_once(' ')?.1.trim();
+            Version::parse(version_str).ok()
+        }
+
+        let min_version =
+            Version::parse(min_version.as_ref()).map_err(|_| fs::Error::NoGitExecutable)?;
+
+        // Common git executable names
+        let mut candidates = vec!["git"];
+
+        // Platform-specific candidates
+        #[cfg(target_os = "windows")]
+        {
+            candidates.extend(vec![
+                "git.exe",
+                "C:\\Program Files\\Git\\bin\\git.exe",
+                "C:\\Program Files (x86)\\Git\\bin\\git.exe",
+            ]);
+        }
+
+        #[cfg(target_os = "macos")]
+        {
+            candidates.extend(vec!["/usr/local/bin/git", "/opt/homebrew/bin/git"]);
+        }
+
+        #[cfg(target_os = "linux")]
+        {
+            candidates.extend(vec!["/usr/bin/git", "/usr/local/bin/git"]);
+        }
+
+        for candidate in candidates.iter() {
+            debug!("Checking git executable: {}", candidate);
+
+            // Test if git --version works
+            let output = Command::new(candidate).arg("--version").output().await;
+
+            if let Ok(output) = output {
+                if output.status.success() {
+                    let version_output = String::from_utf8_lossy(&output.stdout);
+                    debug!("Git version output: {}", version_output);
+
+                    // Parse version from "git version 2.34.1"
+                    if let Some(version) = parse_version(&version_output) {
+                        if version >= min_version {
+                            info!("Found git executable: {} (version: {})", candidate, version);
+                            return Ok(candidate.to_string());
+                        } else {
+                            debug!("Git version {} is below minimum {}", version, min_version);
+                        }
+                    } else {
+                        debug!("Could not parse git version from output");
+                    }
+                }
+            } else {
+                debug!(
+                    "Failed to execute git command '{}': {}",
+                    candidate,
+                    output.unwrap_err()
+                );
+            }
+        }
+
+        Err(fs::Error::NoGitExecutable.into())
     }
 
     /// Try to find docker executable and test if it has compose subcommand
@@ -230,7 +299,7 @@ pub mod application {
             }
         }
 
-        Err(Error::NoDockerComposeExecutable)
+        Err(fs::Error::NoDockerComposeExecutable.into())
     }
 
     /// Try to find standalone docker-compose executable
@@ -307,7 +376,7 @@ pub mod application {
             }
         }
 
-        Err(Error::NoDockerComposeExecutable)
+        Err(fs::Error::NoDockerComposeExecutable.into())
     }
 
     /// Get the application data directory. This works on Windows, macOS, and Linux.
@@ -321,7 +390,7 @@ pub mod application {
                 APPLICATION_PARTS[2],
             )
             .map(|dirs| dirs.data_dir().to_path_buf())
-            .ok_or(FsError::ApplicationDirsNotFound)?
+            .ok_or(fs::Error::ApplicationDirsNotFound)?
         };
 
         // create the data directory if it doesn't exist
@@ -338,7 +407,7 @@ pub mod application {
             APPLICATION_PARTS[2],
         )
         .map(|dirs| dirs.config_dir().to_path_buf())
-        .ok_or(FsError::ApplicationDirsNotFound)?;
+        .ok_or(fs::Error::ApplicationDirsNotFound)?;
 
         // create the config directory if it doesn't exist
         std::fs::create_dir_all(&config_dir)?;
@@ -425,7 +494,7 @@ pub mod workshops {
         let target = target.as_ref();
 
         if !source.exists() || !source.is_dir() {
-            return Err(FsError::WorkshopDataDirNotFound.into());
+            return Err(fs::Error::WorkshopDataDirNotFound.into());
         }
 
         // create the target directory if it doesn't exist
@@ -469,7 +538,7 @@ pub mod workshops {
             );
             copy_tree(workshop_path, target_path)?;
         } else {
-            return Err(FsError::WorkshopDataDirNotFound.into());
+            return Err(fs::Error::WorkshopDataDirNotFound.into());
         }
 
         Ok(workshops_dir)
@@ -511,7 +580,7 @@ pub mod workshops {
     ) -> Result<HashMap<String, workshop::WorkshopData>, Error> {
         let data_dir = data_dir.as_ref();
         if !data_dir.exists() || !data_dir.is_dir() {
-            return Err(FsError::WorkshopDataDirNotFound.into());
+            return Err(fs::Error::WorkshopDataDirNotFound.into());
         }
 
         let mut workshops = HashMap::new();

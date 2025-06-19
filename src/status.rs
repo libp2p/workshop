@@ -14,6 +14,7 @@ use tracing::{info, info_span};
 pub struct Status {
     python_executable: Option<String>,
     docker_compose_executable: Option<String>,
+    git_executable: Option<String>,
     spoken_language: Option<spoken::Code>,
     programming_language: Option<programming::Code>,
     workshop: Option<String>,
@@ -42,6 +43,7 @@ impl Status {
         Ok(Status {
             python_executable: config.python_executable(),
             docker_compose_executable: config.docker_compose_executable(),
+            git_executable: config.git_executable(),
             spoken_language: config.spoken_language(),
             programming_language: config.programming_language(),
             workshop: None,
@@ -83,6 +85,16 @@ impl Status {
         self.docker_compose_executable.as_deref()
     }
 
+    /// Get the preferred Git executable
+    pub fn git_executable(&self) -> Option<&str> {
+        self.git_executable.as_deref()
+    }
+
+    /// Get the minimum required Git version
+    pub fn git_minimum_version(&self) -> &str {
+        self.config.git_minimum_version()
+    }
+
     /// Get the preferred spoken language
     pub fn spoken_language(&self) -> Option<spoken::Code> {
         self.spoken_language
@@ -121,6 +133,14 @@ impl Status {
         if default {
             self.config
                 .set_docker_compose_executable(docker_compose_executable);
+        }
+    }
+
+    /// Set the preferred Git executable with optional default
+    pub fn set_git_executable(&mut self, git_executable: &str, default: bool) {
+        self.git_executable = Some(git_executable.to_string());
+        if default {
+            self.config.set_git_executable(git_executable);
         }
     }
 

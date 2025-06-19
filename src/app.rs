@@ -187,29 +187,38 @@ impl App {
         Ok(())
     }
 
-    /// async run loop
-    pub async fn run(&mut self) -> Result<(), Error> {
-        // initialize the terminal
-        let mut terminal = ratatui::init();
+    /// Setup git
+    async fn detect_git(&mut self) -> Result<(), Error> {
+        // try to get the git executable and minimum version from the status
+        let (git_exe, git_min_ver) = {
+            let status = self
+                .status
+                .lock()
+                .map_err(|e| Error::StatusLock(e.to_string()))?;
+            (
+                status.git_executable().map(String::from),
+                status.git_minimum_version().to_string(),
+            )
+        };
 
-        // initialize the input event stream
-        let mut reader = EventStream::new();
-
-        // the timeout
-        let mut timeout = Delay::new(Duration::from_secs(600));
-
-        // try to get the python executable and minimum version from the status
-        if self.detect_python().await.is_err() {
-            error!("Failed to detect Python executable or version");
-            return Err(Error::NoPythonExecutable);
+        // if we don't have the path, try to find it
+        if git_exe.is_none() {
+            let git_executable = fs::application::find_git_executable(git_min_ver).await?;
+            debug!("Setting Git executable: {}", git_executable);
+            {
+                let mut status = self
+                    .status
+                    .lock()
+                    .map_err(|e| Error::StatusLock(e.to_string()))?;
+                status.set_git_executable(&git_executable, true);
+            }
         }
 
-        // try to get the docker compose executable and minimum version from the status
-        if self.detect_docker_compose().await.is_err() {
-            error!("Failed to detect Docker Compose executable or version");
-            return Err(Error::NoDockerComposeExecutable);
-        }
+        Ok(())
+    }
 
+    /// Queue up the initial events for the application
+    async fn initial_events(&mut self, install: Option<String>) -> Result<(), Error> {
         // initialize the state
         let (workshop, lesson) = {
             let status = self
@@ -223,11 +232,9 @@ impl App {
         };
 
         // send the correct initial message to restore the state
-        match (workshop, lesson) {
+        let event = match (workshop, lesson) {
             (None, _) => {
-                self.sender
-                    .send((Some(Screens::Workshops), tui::Event::LoadWorkshops).into())
-                    .await?;
+                evt!(Screens::Workshops, tui::Event::LoadWorkshops)
             }
             (Some(workshop), lesson) => {
                 // re-runs the deps.py check and if it succeeds will drop you back into the lesson
@@ -241,9 +248,56 @@ impl App {
                     None,
                     tui::Event::CheckDeps(workshop.to_string(), Some(hide_log), None,),
                 );
-                let show_log = evt!(None, tui::Event::ShowLog(Some(check_deps)));
-                self.sender.send(show_log.into()).await?;
+                evt!(None, tui::Event::ShowLog(Some(check_deps)))
             }
+        };
+
+        // if there's a workshop to install, do that first
+        if let Some(install) = install {
+            // if we are installing a workshop, send the install event
+            let install_event = evt!(None, tui::Event::InstallWorkshop(install, event.into()));
+            let show_log = evt!(None, tui::Event::ShowLog(Some(install_event)));
+            self.sender.send(show_log.into()).await?;
+        } else {
+            self.sender.send(event.into()).await?;
+        }
+
+        Ok(())
+    }
+
+    /// async run loop
+    pub async fn run(&mut self, install: Option<String>) -> Result<(), Error> {
+        // initialize the terminal
+        let mut terminal = ratatui::init();
+
+        // initialize the input event stream
+        let mut reader = EventStream::new();
+
+        // the timeout
+        let mut timeout = Delay::new(Duration::from_secs(600));
+
+        // try to get the python executable and minimum version from the status
+        if self.detect_python().await.is_err() {
+            error!("Failed to detect Python executable or version");
+            return Err(fs::Error::NoPythonExecutable.into());
+        }
+
+        // try to get the docker compose executable and minimum version from the status
+        if self.detect_docker_compose().await.is_err() {
+            error!("Failed to detect Docker Compose executable or version");
+            return Err(fs::Error::NoDockerComposeExecutable.into());
+        }
+
+        // try to get the git executable and minimum version from the status
+        if self.detect_git().await.is_err() {
+            error!("Failed to detect Git executable or version");
+            return Err(fs::Error::NoGitExecutable.into());
+        }
+
+        // queue up the initial events
+        if self.initial_events(install).await.is_err() {
+            error!("Failed to queue initial events");
+            return Err(Error::InitialEvents);
         }
 
         'run: loop {
@@ -640,7 +694,7 @@ impl App {
                             )
                         };
 
-                        let py_exe = python_executable.ok_or(Error::NoPythonExecutable)?;
+                        let py_exe = python_executable.ok_or(fs::Error::NoPythonExecutable)?;
 
                         let running = evt!(
                             Screens::Log,
@@ -741,9 +795,9 @@ impl App {
                         )
                     };
 
-                    let py_exe = python_executable.ok_or(Error::NoPythonExecutable)?;
+                    let py_exe = python_executable.ok_or(fs::Error::NoPythonExecutable)?;
                     let dc_exe =
-                        docker_compose_executable.ok_or(Error::NoDockerComposeExecutable)?;
+                        docker_compose_executable.ok_or(fs::Error::NoDockerComposeExecutable)?;
 
                     // Check if we have required workshop and lesson
                     if let (Some(workshop), Some(lesson)) = (workshop, lesson) {
@@ -821,6 +875,67 @@ impl App {
                         }
                     }
                 }
+                tui::Event::InstallWorkshop(url, next) => {
+                    // Get current status information
+                    let git_executable = {
+                        let status = status
+                            .lock()
+                            .map_err(|e| Error::StatusLock(e.to_string()))?;
+                        status.git_executable().map(String::from)
+                    };
+                    let git_exe = git_executable.ok_or(fs::Error::NoGitExecutable)?;
+
+                    let running = evt!(
+                        Screens::Log,
+                        tui::Event::Log(format!("r Installing workshop from: {url}",))
+                    );
+                    to_ui.send(running.into()).await?;
+
+                    debug!("Attempting to clone the workshop from: {url}");
+
+                    // Run dependency check in background
+                    let command_runner = self.command_runner.clone();
+                    let token = self.token.clone();
+                    let sender = to_ui.clone();
+                    let data_dir = fs::application::data_dir()?;
+
+                    tokio::spawn(async move {
+                        match command_runner
+                            .install_workshop(&git_exe, &url, &data_dir, &token)
+                            .await
+                        {
+                            Ok(result) => {
+                                let _ = sender
+                                    .send(
+                                        (
+                                            Some(Screens::Log),
+                                            tui::Event::CommandCompleted(
+                                                result,
+                                                next.clone(),
+                                                next,
+                                            ),
+                                        )
+                                            .into(),
+                                    )
+                                    .await;
+                            }
+                            Err(e) => {
+                                let _ = sender
+                                    .send(
+                                        (
+                                            Some(Screens::Log),
+                                            tui::Event::Log(format!(
+                                                "! workshop install failed: {e}"
+                                            )),
+                                        )
+                                            .into(),
+                                    )
+                                    .await;
+                            }
+                        }
+                    });
+                }
+
                 _ => {
                     // pass the event to every screen
                     for screen in Screens::iter() {

@@ -13,6 +13,8 @@ pub struct Config {
     python_executable: Option<String>,
     docker_compose_minimum_version: String,
     docker_compose_executable: Option<String>,
+    git_executable: Option<String>,
+    git_minimum_version: String,
     spoken_language: Option<spoken::Code>,
     programming_language: Option<programming::Code>,
 }
@@ -24,6 +26,8 @@ impl Default for Config {
             python_executable: None,
             docker_compose_minimum_version: "2.0.0".to_string(),
             docker_compose_executable: None,
+            git_executable: None,
+            git_minimum_version: "2.39.0".to_string(),
             spoken_language: None,
             programming_language: None,
         }
@@ -74,6 +78,16 @@ impl Config {
         self.docker_compose_executable.clone()
     }
 
+    /// Get the preferred Git executable
+    pub fn git_executable(&self) -> Option<String> {
+        self.git_executable.clone()
+    }
+
+    /// Get the minimum required Git version
+    pub fn git_minimum_version(&self) -> &str {
+        &self.git_minimum_version
+    }
+
     /// Get the preferred spoken language
     pub fn spoken_language(&self) -> Option<spoken::Code> {
         self.spoken_language
@@ -92,6 +106,11 @@ impl Config {
     /// Set the preferred Docker Compose executable
     pub fn set_docker_compose_executable(&mut self, docker_compose_executable: &str) {
         self.docker_compose_executable = Some(docker_compose_executable.to_string());
+    }
+
+    /// Set the preferred Git executable
+    pub fn set_git_executable(&mut self, git_executable: &str) {
+        self.git_executable = Some(git_executable.to_string());
     }
 
     /// Set the spoken language

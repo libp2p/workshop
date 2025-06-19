@@ -42,15 +42,11 @@ pub enum Error {
     #[error("Project directories error: {0}")]
     ProjectDirs(String),
 
-    /// No Python executable found
-    #[error("No Python executable found")]
-    NoPythonExecutable,
-
-    /// No Docker Compose executable found
-    #[error("No Docker Compose executable found")]
-    NoDockerComposeExecutable,
-
     /// Command error
     #[error("Command error: {0}")]
     Command(String),
+
+    /// Initial events failed
+    #[error("Initial events failed")]
+    InitialEvents,
 }

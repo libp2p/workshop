@@ -93,4 +93,6 @@ pub enum Event {
     CommandOutput(String, Option<u8>),
     /// command completed
     CommandCompleted(CommandResult, Option<Evt>, Option<Evt>),
+    /// install a workshop from a URL
+    InstallWorkshop(String, Option<Evt>),
 }
