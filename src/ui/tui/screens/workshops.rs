@@ -5,7 +5,7 @@ use crate::{
     ui::tui::{
         self,
         screens::{self, Screens},
-        widgets::ScrollBox,
+        widgets::{LessonBox, LessonBoxState, ScrollBox},
         Screen,
     },
     Error, Status,
@@ -71,22 +71,57 @@ const STATUS_BORDER: Set = Set {
     horizontal_bottom: "─",
 };
 
-#[derive(Clone, Debug, Default, Hash, Eq, PartialEq)]
-enum FocusedView {
-    #[default]
-    List,
-    Metadata,
-    Description,
-    SetupInstructions,
+#[derive(Clone, Debug)]
+enum FocusedView<'a> {
+    List(List<'a>, ListState),
+    Metadata(ScrollBox<'a>),
+    Description(LessonBox<'a>, LessonBoxState),
+    SetupInstructions(LessonBox<'a>, LessonBoxState),
 }
 
-impl fmt::Display for FocusedView {
+impl Default for FocusedView<'_> {
+    fn default() -> Self {
+        FocusedView::List(List::default(), ListState::default())
+    }
+}
+
+impl FocusedView<'_> {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            FocusedView::List(..) => "list",
+            FocusedView::Metadata(..) => "metadata",
+            FocusedView::Description(..) => "description",
+            FocusedView::SetupInstructions(..) => "setup",
+        }
+    }
+}
+
+impl fmt::Display for FocusedView<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            FocusedView::List => write!(f, "List"),
-            FocusedView::Metadata => write!(f, "Metadata"),
-            FocusedView::Description => write!(f, "Description"),
-            FocusedView::SetupInstructions => write!(f, "Setup Instructions"),
+            FocusedView::List(..) => write!(f, "List"),
+            FocusedView::Metadata(..) => write!(f, "Metadata"),
+            FocusedView::Description(..) => write!(f, "Description"),
+            FocusedView::SetupInstructions(..) => write!(f, "Setup Instructions"),
+        }
+    }
+}
+
+impl Widget for &mut FocusedView<'_> {
+    fn render(self, area: Rect, buf: &mut Buffer) {
+        match self {
+            FocusedView::List(ref list, ref mut state) => {
+                StatefulWidget::render(list, area, buf, state);
+            }
+            FocusedView::Metadata(ref mut scroll_box) => {
+                Widget::render(&mut *scroll_box, area, buf);
+            }
+            FocusedView::Description(ref lesson_box, ref mut state) => {
+                StatefulWidget::render(lesson_box.clone(), area, buf, state);
+            }
+            FocusedView::SetupInstructions(ref lesson_box, ref mut state) => {
+                StatefulWidget::render(lesson_box.clone(), area, buf, state);
+            }
         }
     }
 }
@@ -105,14 +140,10 @@ pub struct Workshops<'a> {
     selected: Option<Cached>,
     /// the map of workshop titles to workshop keys in sorted order
     titles_map: BTreeMap<String, String>,
-    /// the cached list
-    titles: List<'a>,
-    /// the list state of workshop title
-    titles_state: ListState,
-    /// workshop data boxes
-    boxes: HashMap<FocusedView, ScrollBox<'a>>,
+    /// the views
+    views: HashMap<&'static str, FocusedView<'a>>,
     /// currently focused view
-    focused: FocusedView,
+    focused: &'static str,
     /// the currently selected spoken language
     spoken_language: Option<spoken::Code>,
     /// the currently selected programming language
@@ -123,13 +154,24 @@ impl Workshops<'_> {
     /// create a new Workshops instance
     pub fn new() -> Self {
         Workshops {
-            boxes: [
-                (FocusedView::Metadata, ScrollBox::default()),
-                (FocusedView::Description, ScrollBox::default()),
-                (FocusedView::SetupInstructions, ScrollBox::default()),
+            views: [
+                (
+                    "list",
+                    FocusedView::List(List::default(), ListState::default()),
+                ),
+                ("metadata", FocusedView::Metadata(ScrollBox::default())),
+                (
+                    "description",
+                    FocusedView::Description(LessonBox::default(), LessonBoxState::default()),
+                ),
+                (
+                    "setup",
+                    FocusedView::SetupInstructions(LessonBox::default(), LessonBoxState::default()),
+                ),
             ]
             .into_iter()
             .collect(),
+            focused: FocusedView::default().as_str(),
             ..Default::default()
         }
     }
@@ -145,23 +187,28 @@ impl Workshops<'_> {
         self.spoken_language = spoken_language;
         self.programming_language = programming_language;
 
-        if self.workshops.is_empty() {
-            self.titles_state.select(None);
-        } else {
-            self.titles_state.select_first();
-        };
+        // get the workshop titles
+        let t = self.get_titles().await?;
 
-        // create the titles list
-        let titles = self.get_titles().await?;
-        self.titles = List::new(titles)
-            .highlight_style(
-                Style::default()
-                    .fg(Color::Black)
-                    .bg(Color::White)
-                    .add_modifier(Modifier::BOLD),
-            )
-            .style(Style::default().fg(Color::White))
-            .highlight_symbol("> ");
+        if let Some(FocusedView::List(titles, state)) = self.views.get_mut("list") {
+            // set the initial focus
+            if self.workshops.is_empty() {
+                state.select(None);
+            } else {
+                state.select_first();
+            }
+
+            // set the titles
+            *titles = List::new(t)
+                .highlight_style(
+                    Style::default()
+                        .fg(Color::Black)
+                        .bg(Color::White)
+                        .add_modifier(Modifier::BOLD),
+                )
+                .style(Style::default().fg(Color::White))
+                .highlight_symbol("> ");
+        }
 
         // cache all of the data for the selected workshop
         self.cache_selected().await?;
@@ -249,11 +296,15 @@ impl Workshops<'_> {
                         .join("\n"),
                 );
 
-                for (v, b) in self.boxes.iter_mut() {
+                for (_, v) in self.views.iter_mut() {
                     match v {
-                        FocusedView::Metadata => b.set_text(&metadata),
-                        FocusedView::Description => b.set_text(&description),
-                        FocusedView::SetupInstructions => b.set_text(&setup_instructions),
+                        FocusedView::Metadata(scroll_box) => scroll_box.set_text(&metadata),
+                        FocusedView::Description(_, state) => {
+                            *state = LessonBoxState::from_markdown(&description);
+                        }
+                        FocusedView::SetupInstructions(_, state) => {
+                            *state = LessonBoxState::from_markdown(&setup_instructions);
+                        }
                         _ => {}
                     }
                 }
@@ -265,13 +316,17 @@ impl Workshops<'_> {
         }
 
         // set the boxes to default text
-        for (v, b) in self.boxes.iter_mut() {
+        for (_, v) in self.views.iter_mut() {
             match v {
-                FocusedView::Metadata => {
-                    b.set_text("No workshops support the selected spoken and programming languages")
+                FocusedView::Metadata(ref mut scroll_box) => {
+                    scroll_box.set_text("No metadata available for the selected workshop");
                 }
-                FocusedView::Description => b.set_text(""),
-                FocusedView::SetupInstructions => b.set_text(""),
+                FocusedView::Description(_, ref mut state) => {
+                    *state = LessonBoxState::from_markdown("");
+                }
+                FocusedView::SetupInstructions(_, ref mut state) => {
+                    *state = LessonBoxState::from_markdown("");
+                }
                 _ => {}
             }
         }
@@ -280,16 +335,22 @@ impl Workshops<'_> {
     }
 
     async fn first(&mut self) -> Result<(), Error> {
-        match &self.focused {
-            FocusedView::List => {
-                if !self.workshops.is_empty() {
-                    self.titles_state.select(Some(0));
-                    self.cache_selected().await?;
+        if let Some(v) = self.views.get_mut(self.focused) {
+            match v {
+                FocusedView::List(_, state) => {
+                    if !self.workshops.is_empty() {
+                        state.select(Some(0));
+                        self.cache_selected().await?;
+                    }
                 }
-            }
-            view => {
-                if let Some(sb) = self.boxes.get_mut(view) {
-                    sb.scroll_top();
+                FocusedView::Metadata(scroll_box) => {
+                    scroll_box.scroll_top();
+                }
+                FocusedView::Description(_, state) => {
+                    state.scroll_top();
+                }
+                FocusedView::SetupInstructions(_, state) => {
+                    state.scroll_top();
                 }
             }
         }
@@ -297,17 +358,21 @@ impl Workshops<'_> {
     }
 
     async fn last(&mut self) -> Result<(), Error> {
-        match &self.focused {
-            FocusedView::List => {
-                if !self.workshops.is_empty() {
+        if let Some(v) = self.views.get_mut(self.focused) {
+            match v {
+                FocusedView::List(_, state) => {
                     let last_index = self.workshops.len() - 1;
-                    self.titles_state.select(Some(last_index));
+                    state.select(Some(last_index));
                     self.cache_selected().await?;
                 }
-            }
-            view => {
-                if let Some(sb) = self.boxes.get_mut(view) {
-                    sb.scroll_bottom();
+                FocusedView::Metadata(scroll_box) => {
+                    scroll_box.scroll_bottom();
+                }
+                FocusedView::Description(_, state) => {
+                    state.scroll_bottom();
+                }
+                FocusedView::SetupInstructions(_, state) => {
+                    state.scroll_bottom();
                 }
             }
         }
@@ -315,18 +380,24 @@ impl Workshops<'_> {
     }
 
     async fn next(&mut self) -> Result<(), Error> {
-        match &self.focused {
-            FocusedView::List => {
-                if !self.workshops.is_empty() {
-                    let selected_index = self.titles_state.selected().unwrap_or(0);
-                    let next_index = (selected_index + 1).min(self.workshops.len() - 1);
-                    self.titles_state.select(Some(next_index));
-                    self.cache_selected().await?;
+        if let Some(v) = self.views.get_mut(self.focused) {
+            match v {
+                FocusedView::List(_, state) => {
+                    if !self.workshops.is_empty() {
+                        let selected_index = state.selected().unwrap_or(0);
+                        let next_index = (selected_index + 1).min(self.workshops.len() - 1);
+                        state.select(Some(next_index));
+                        self.cache_selected().await?;
+                    }
                 }
-            }
-            view => {
-                if let Some(sb) = self.boxes.get_mut(view) {
-                    sb.scroll_down();
+                FocusedView::Metadata(scroll_box) => {
+                    scroll_box.scroll_down();
+                }
+                FocusedView::Description(_, state) => {
+                    state.scroll_down();
+                }
+                FocusedView::SetupInstructions(_, state) => {
+                    state.scroll_down();
                 }
             }
         }
@@ -334,22 +405,28 @@ impl Workshops<'_> {
     }
 
     async fn prev(&mut self) -> Result<(), Error> {
-        match &self.focused {
-            FocusedView::List => {
-                if !self.workshops.is_empty() {
-                    let selected_index = self.titles_state.selected().unwrap_or(0);
-                    let prev_index = if selected_index > 0 {
-                        selected_index - 1
-                    } else {
-                        0
-                    };
-                    self.titles_state.select(Some(prev_index));
-                    self.cache_selected().await?;
+        if let Some(v) = self.views.get_mut(self.focused) {
+            match v {
+                FocusedView::List(_, state) => {
+                    if !self.workshops.is_empty() {
+                        let selected_index = state.selected().unwrap_or(0);
+                        let prev_index = if selected_index > 0 {
+                            selected_index - 1
+                        } else {
+                            0
+                        };
+                        state.select(Some(prev_index));
+                        self.cache_selected().await?;
+                    }
                 }
-            }
-            view => {
-                if let Some(sb) = self.boxes.get_mut(view) {
-                    sb.scroll_up();
+                FocusedView::Metadata(scroll_box) => {
+                    scroll_box.scroll_up();
+                }
+                FocusedView::Description(_, state) => {
+                    state.scroll_up();
+                }
+                FocusedView::SetupInstructions(_, state) => {
+                    state.scroll_up();
                 }
             }
         }
@@ -361,8 +438,12 @@ impl Workshops<'_> {
         if self.workshops.is_empty() {
             return None;
         }
-        let selected_index = self.titles_state.selected().unwrap_or(0);
-        self.get_workshop_keys().get(selected_index).cloned()
+        if let Some(FocusedView::List(_, state)) = self.views.get(self.focused) {
+            let selected_index = state.selected().unwrap_or(0);
+            self.get_workshop_keys().get(selected_index).cloned()
+        } else {
+            None
+        }
     }
 
     // get the sorted list of workshop keys
@@ -401,26 +482,32 @@ impl Workshops<'_> {
     /// render the list of workshop titles
     fn render_workshop_titles(&mut self, area: Rect, buf: &mut Buffer) {
         // figure out the titles list border fg color based on what is focused
-        let fg = match self.focused {
-            FocusedView::List => Color::White,
-            _ => Color::DarkGray,
+        let fg = if self.focused == "list" {
+            Color::White
+        } else {
+            Color::DarkGray
         };
 
         let title = Line::from(vec![
             Span::styled("─", Style::default().fg(Color::DarkGray)),
             Span::styled("/ Select a Workshop /", Style::default().fg(fg)),
         ]);
-        let titles = self.titles.clone().block(
-            Block::default()
-                .title(title)
-                .title_style(Style::default().fg(fg))
-                .padding(Padding::uniform(1))
-                .style(Style::default().fg(Color::DarkGray))
-                .borders(Borders::LEFT | Borders::TOP | Borders::RIGHT)
-                .border_set(TOP_LEFT_BORDER),
-        );
 
-        StatefulWidget::render(&titles, area, buf, &mut self.titles_state);
+        if let Some(view) = self.views.get_mut("list") {
+            if let FocusedView::List(list, _) = view {
+                *list = list.clone().block(
+                    Block::default()
+                        .title(title)
+                        .padding(Padding::uniform(1))
+                        .style(Style::default().fg(fg))
+                        .border_style(Style::default().fg(Color::DarkGray))
+                        .borders(Borders::LEFT | Borders::TOP | Borders::RIGHT)
+                        .border_set(TOP_LEFT_BORDER),
+                );
+            }
+
+            Widget::render(view, area, buf);
+        };
     }
 
     /// render the workshop info
@@ -433,14 +520,9 @@ impl Workshops<'_> {
         .flex(Flex::End)
         .areas(area);
 
-        self.render_workshop_box(areas[0], buf, FocusedView::Metadata, TOP_BOX_BORDER);
-        self.render_workshop_box(areas[1], buf, FocusedView::Description, BOTTOM_BOX_BORDER);
-        self.render_workshop_box(
-            areas[2],
-            buf,
-            FocusedView::SetupInstructions,
-            BOTTOM_BOX_BORDER,
-        );
+        self.render_workshop_box(areas[0], buf, "metadata", TOP_BOX_BORDER);
+        self.render_workshop_box(areas[1], buf, "description", BOTTOM_BOX_BORDER);
+        self.render_workshop_box(areas[2], buf, "setup", BOTTOM_BOX_BORDER);
     }
 
     // render the workshop box
@@ -448,34 +530,51 @@ impl Workshops<'_> {
         &mut self,
         area: Rect,
         buf: &mut Buffer,
-        view: FocusedView,
+        view: &'static str,
         border_set: Set,
     ) {
-        if let Some(b) = self.boxes.get_mut(&view) {
-            let fg = if self.focused == view {
-                Color::White
-            } else {
-                Color::DarkGray
-            };
+        // figure out the box border fg color based on what is focused
+        let fg = if self.focused == view {
+            Color::White
+        } else {
+            Color::DarkGray
+        };
 
+        if let Some(view) = self.views.get_mut(view) {
+            // get the box title
             let title = Line::from(vec![
                 Span::styled("─", Style::default().fg(Color::DarkGray)),
                 Span::styled(format!("/ {view} /"), Style::default().fg(fg)),
             ]);
-            let block = Block::default()
-                .title(title)
-                .title_style(Style::default().fg(fg))
-                .padding(Padding::top(1))
-                .style(Style::default().fg(Color::DarkGray))
-                .borders(Borders::LEFT | Borders::TOP | Borders::RIGHT)
-                .border_set(border_set);
 
-            b.block(block);
-            b.style(Style::default().fg(Color::White));
-
-            // render the scroll text
-            Widget::render(b, area, buf);
-        }
+            // set the block
+            match view {
+                FocusedView::Metadata(widget) => {
+                    widget.block(
+                        Block::default()
+                            .title(title)
+                            .padding(Padding::uniform(1))
+                            .style(Style::default().fg(fg))
+                            .border_style(Style::default().fg(Color::DarkGray))
+                            .borders(Borders::LEFT | Borders::TOP | Borders::RIGHT)
+                            .border_set(border_set),
+                    );
+                }
+                FocusedView::Description(widget, _) | FocusedView::SetupInstructions(widget, _) => {
+                    *widget = widget.clone().block(
+                        Block::default()
+                            .title(title)
+                            .padding(Padding::uniform(1))
+                            .style(Style::default().fg(fg))
+                            .border_style(Style::default().fg(Color::DarkGray))
+                            .borders(Borders::LEFT | Borders::TOP | Borders::RIGHT)
+                            .border_set(border_set),
+                    );
+                }
+                _ => return,
+            };
+            Widget::render(view, area, buf);
+        };
     }
 
     // render the status bar at the bottom
@@ -641,18 +740,20 @@ impl Workshops<'_> {
                     if key.modifiers.contains(event::KeyModifiers::SHIFT) {
                         // switch focus to the previous view
                         self.focused = match self.focused {
-                            FocusedView::List => FocusedView::SetupInstructions,
-                            FocusedView::Metadata => FocusedView::List,
-                            FocusedView::Description => FocusedView::Metadata,
-                            FocusedView::SetupInstructions => FocusedView::Description,
+                            "list" => "setup",
+                            "metadata" => "list",
+                            "description" => "metadata",
+                            "setup" => "description",
+                            &_ => "list",
                         };
                     } else {
                         // switch focus to the next view
                         self.focused = match self.focused {
-                            FocusedView::List => FocusedView::Metadata,
-                            FocusedView::Metadata => FocusedView::Description,
-                            FocusedView::Description => FocusedView::SetupInstructions,
-                            FocusedView::SetupInstructions => FocusedView::List,
+                            "list" => "metadata",
+                            "metadata" => "description",
+                            "description" => "setup",
+                            "setup" => "list",
+                            &_ => "list",
                         };
                     }
                 }

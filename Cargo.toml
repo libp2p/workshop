@@ -1,6 +1,6 @@
 [package]
 name = "workshop"
-version = "1.0.6"
+version = "1.0.7"
 edition = "2021"
 authors = ["Dave Grantham <dwg@linuxprogrammer.org>"]
 description = "A tool for presenting programming workshops"
