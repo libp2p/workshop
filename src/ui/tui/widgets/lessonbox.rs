@@ -70,14 +70,23 @@ impl ContentBlock for ListItem {
     fn render(&self, width: u16) -> Vec<Line<'static>> {
         let style = Style::default().fg(Color::LightYellow);
         let indent = "  ".repeat(self.indent_level as usize);
-        let prefixed_text = format!("{}• {}", indent, self.text);
+        let bullet_prefix = format!("{indent}• ");
+        let continuation_indent = format!("{indent}  "); // Same base indent + 2 spaces for bullet alignment
 
-        let available_width = width.saturating_sub(indent.len() as u16 + 2);
-        let wrapped_lines = textwrap::wrap(&prefixed_text, available_width.max(10) as usize);
+        let available_width = width.saturating_sub(bullet_prefix.len() as u16);
+        let wrapped_lines = textwrap::wrap(&self.text, available_width.max(10) as usize);
 
         wrapped_lines
             .into_iter()
-            .map(|line| Line::from(Span::styled(line.to_string(), style)))
+            .enumerate()
+            .map(|(i, line)| {
+                let prefix = if i == 0 {
+                    &bullet_prefix
+                } else {
+                    &continuation_indent
+                };
+                Line::from(Span::styled(format!("{prefix}{line}"), style))
+            })
             .collect()
     }
 }
@@ -966,6 +975,24 @@ mod tests {
     }
 
     #[test]
+    fn test_list_item_wrapping() {
+        let list_item = ListItem {
+            text: "This is a very long list item that should wrap to multiple lines when the width is constrained".to_string(),
+            indent_level: 0,
+        };
+        let lines = list_item.render(30);
+        assert!(lines.len() > 1);
+
+        // First line should have bullet
+        assert!(lines[0].spans[0].content.starts_with("• "));
+
+        // Subsequent lines should be indented to align with text after bullet
+        if lines.len() > 1 {
+            assert!(lines[1].spans[0].content.starts_with("  ")); // Two spaces to align with text after "• "
+        }
+    }
+
+    #[test]
     fn test_code_block_render() {
         let code_block = CodeBlock {
             language: Some("rust".to_string()),
@@ -1080,7 +1107,7 @@ fn main() {
 
         // Check that first item is the main heading
         if let Content::Heading(h) = &content[0] {
-            assert!(h.text.len() > 0); // Should have some heading text
+            assert!(!h.text.is_empty()); // Should have some heading text
         }
 
         // Verify hints have titles and content
