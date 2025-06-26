@@ -499,7 +499,7 @@ impl Workshops<'_> {
                     Block::default()
                         .title(title)
                         .padding(Padding::uniform(1))
-                        .style(Style::default().fg(fg))
+                        .style(Style::default().fg(Color::White))
                         .border_style(Style::default().fg(Color::DarkGray))
                         .borders(Borders::LEFT | Borders::TOP | Borders::RIGHT)
                         .border_set(TOP_LEFT_BORDER),
@@ -554,7 +554,7 @@ impl Workshops<'_> {
                         Block::default()
                             .title(title)
                             .padding(Padding::uniform(1))
-                            .style(Style::default().fg(fg))
+                            .style(Style::default().fg(Color::White))
                             .border_style(Style::default().fg(Color::DarkGray))
                             .borders(Borders::LEFT | Borders::TOP | Borders::RIGHT)
                             .border_set(border_set),
@@ -565,7 +565,7 @@ impl Workshops<'_> {
                         Block::default()
                             .title(title)
                             .padding(Padding::uniform(1))
-                            .style(Style::default().fg(fg))
+                            .style(Style::default().fg(Color::White))
                             .border_style(Style::default().fg(Color::DarkGray))
                             .borders(Borders::LEFT | Borders::TOP | Borders::RIGHT)
                             .border_set(border_set),
