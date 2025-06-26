@@ -230,16 +230,15 @@ impl CommandRunner {
             ("LESSON_PATH", lesson_path.as_str()),
         ];
 
-        // Run docker compose up -d --build
+        // Run docker compose up --build
         debug!(
-            "Running '{} compose up -d --build' in '{}' with PROJECT_ROOT={project_root} LESSON_PATH={lesson_path}",
-            docker_compose_executable,
+            "Running '{docker_compose_executable} compose up --build' in '{}' with PROJECT_ROOT={project_root} LESSON_PATH={lesson_path}",
             lesson_dir.display(),
         );
         let docker_result = self
             .run_command_with_env(
                 docker_compose_executable.as_ref(),
-                &["compose", "up", "-d", "--build"],
+                &["compose", "up", "--build"],
                 Some(lesson_dir),
                 &env_vars,
                 token,
