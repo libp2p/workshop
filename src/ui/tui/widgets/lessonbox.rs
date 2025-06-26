@@ -130,11 +130,31 @@ pub struct Hint {
 
 impl ContentBlock for CodeBlock {
     fn render(&self, _width: u16) -> Vec<Line<'static>> {
-        if let Some(language) = &self.language {
+        let mut lines = Vec::new();
+        let border_style = Style::default().fg(Color::Gray);
+        
+        // Create simple top border
+        let top_border = "┌─";
+        lines.push(Line::from(Span::styled(top_border, border_style)));
+        
+        // Add code content with side borders
+        let code_lines = if let Some(language) = &self.language {
             self.render_with_syntax_highlighting(language)
         } else {
             self.render_plain()
+        };
+        
+        for code_line in code_lines {
+            let mut new_spans = vec![Span::styled("│ ", border_style)];
+            new_spans.extend(code_line.spans);
+            lines.push(Line::from(new_spans));
         }
+        
+        // Create simple bottom border
+        let bottom_border = "└─";
+        lines.push(Line::from(Span::styled(bottom_border, border_style)));
+        
+        lines
     }
 }
 
@@ -999,16 +1019,35 @@ mod tests {
             code: "fn main() {\n    println!(\"Hello, world!\");\n}".to_string(),
         };
         let lines = code_block.render(80);
-        assert_eq!(lines.len(), 3);
+        assert_eq!(lines.len(), 5); // top border + 3 code lines + bottom border
 
-        // With syntax highlighting, the line is split into multiple spans
-        let first_line_text: String = lines[0]
+        // Check top border
+        let top_border_text: String = lines[0]
             .spans
             .iter()
             .map(|span| span.content.as_ref())
             .collect::<Vec<&str>>()
             .join("");
-        assert_eq!(first_line_text, "fn main() {");
+        assert_eq!(top_border_text, "┌─");
+
+        // Check that code lines have side borders
+        let first_code_line_text: String = lines[1]
+            .spans
+            .iter()
+            .map(|span| span.content.as_ref())
+            .collect::<Vec<&str>>()
+            .join("");
+        assert!(first_code_line_text.starts_with("│ "));
+        assert!(first_code_line_text.contains("fn main() {"));
+
+        // Check bottom border
+        let bottom_border_text: String = lines[4]
+            .spans
+            .iter()
+            .map(|span| span.content.as_ref())
+            .collect::<Vec<&str>>()
+            .join("");
+        assert_eq!(bottom_border_text, "└─");
     }
 
     #[test]
@@ -1136,13 +1175,14 @@ fn main() {
             code: "fn main() {\n    println!(\"Hello, world!\");\n}".to_string(),
         };
         let lines = code_block.render(80);
-        assert_eq!(lines.len(), 3);
+        assert_eq!(lines.len(), 5); // top border + 3 code lines + bottom border
 
         // Should have multiple spans with different colors for syntax highlighting
-        assert!(lines[0].spans.len() > 1); // "fn", " ", "main", "(", ")", " ", "{"
+        // Check the first code line (index 1, after top border)
+        assert!(lines[1].spans.len() > 2); // "│ ", then syntax highlighted spans
 
-        // Test that we get some styling (not all default)
-        let has_colored_spans = lines
+        // Test that we get some styling (not all default) in code lines
+        let has_colored_spans = lines[1..4] // Check only code lines, skip borders
             .iter()
             .any(|line| line.spans.iter().any(|span| span.style.fg.is_some()));
         assert!(has_colored_spans);
@@ -1155,8 +1195,26 @@ fn main() {
             code: "some code without language".to_string(),
         };
         let lines = code_block.render(80);
-        assert_eq!(lines.len(), 1);
-        assert_eq!(lines[0].spans.len(), 1); // Should be a single span
+        assert_eq!(lines.len(), 3); // top border + 1 code line + bottom border
+        
+        // Check top border
+        let top_border_text: String = lines[0]
+            .spans
+            .iter()
+            .map(|span| span.content.as_ref())
+            .collect::<Vec<&str>>()
+            .join("");
+        assert_eq!(top_border_text, "┌─");
+        
+        // Check code line has side border
+        let code_line_text: String = lines[1]
+            .spans
+            .iter()
+            .map(|span| span.content.as_ref())
+            .collect::<Vec<&str>>()
+            .join("");
+        assert!(code_line_text.starts_with("│ "));
+        assert!(code_line_text.contains("some code without language"));
     }
 
     #[test]
@@ -1166,13 +1224,44 @@ fn main() {
             code: "def hello():\n    print(\"Hello, world!\")".to_string(),
         };
         let lines = code_block.render(80);
-        assert_eq!(lines.len(), 2);
+        assert_eq!(lines.len(), 4); // top border + 2 code lines + bottom border
 
-        // Should have syntax highlighting
-        let has_colored_spans = lines
+        // Check top border
+        let top_border_text: String = lines[0]
+            .spans
+            .iter()
+            .map(|span| span.content.as_ref())
+            .collect::<Vec<&str>>()
+            .join("");
+        assert_eq!(top_border_text, "┌─");
+
+        // Should have syntax highlighting in code lines
+        let has_colored_spans = lines[1..3] // Skip borders, check only code lines
             .iter()
             .any(|line| line.spans.iter().any(|span| span.style.fg.is_some()));
         assert!(has_colored_spans);
+    }
+
+    #[test]
+    fn test_code_block_borders() {
+        let code_block = CodeBlock {
+            language: Some("javascript".to_string()),
+            code: "console.log('Hello');".to_string(),
+        };
+        let lines = code_block.render(40);
+        assert_eq!(lines.len(), 3); // top border + 1 code line + bottom border
+
+        // Check top border formatting
+        let top_text: String = lines[0].spans.iter().map(|s| s.content.as_ref()).collect();
+        assert_eq!(top_text, "┌─");
+
+        // Check code line has proper side border
+        let code_text: String = lines[1].spans.iter().map(|s| s.content.as_ref()).collect();
+        assert!(code_text.starts_with("│ "));
+        
+        // Check bottom border formatting
+        let bottom_text: String = lines[2].spans.iter().map(|s| s.content.as_ref()).collect();
+        assert_eq!(bottom_text, "└─");
     }
 
     #[test]

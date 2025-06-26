@@ -121,7 +121,7 @@ impl Lesson {
     fn render_status(&mut self, area: Rect, buf: &mut Buffer) {
         // render the status bar at the bottom
         let [keys_area, langs_area] =
-            Layout::horizontal([Constraint::Min(1), Constraint::Length(40)]).areas(area);
+            Layout::horizontal([Constraint::Min(1), Constraint::Length(46)]).areas(area);
 
         self.render_keys(keys_area, buf);
         self.render_langs(langs_area, buf);
@@ -132,7 +132,7 @@ impl Lesson {
         let title = Line::from(vec![
             Span::styled("─", Style::default().fg(Color::DarkGray)),
             Span::styled(
-                "/ j,k scroll / ⇥ next hint / ↵ expand hint / c check / b back / q quit /",
+                "/ j,k scroll / ↵ expand hint / c check / b back / q quit /",
                 Style::default().fg(Color::White),
             ),
         ]);
@@ -333,9 +333,6 @@ impl Lesson {
                 }
                 KeyCode::Char('k') | KeyCode::Char('K') | KeyCode::Up => {
                     self.lesson_state.highlight_up()
-                }
-                KeyCode::Tab => {
-                    // Tab key for hint navigation - could be expanded later
                 }
                 KeyCode::Enter => {
                     // Toggle hint if highlighted line is a hint title
