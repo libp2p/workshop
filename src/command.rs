@@ -232,13 +232,13 @@ impl CommandRunner {
 
         // Run docker compose up --build
         debug!(
-            "Running '{docker_compose_executable} compose up --build' in '{}' with PROJECT_ROOT={project_root} LESSON_PATH={lesson_path}",
+            "Running '{docker_compose_executable} compose up --build --remove-orphans' in '{}' with PROJECT_ROOT={project_root} LESSON_PATH={lesson_path}",
             lesson_dir.display(),
         );
         let docker_result = self
             .run_command_with_env(
                 docker_compose_executable.as_ref(),
-                &["compose", "up", "--build"],
+                &["compose", "up", "--build", "--remove-orphans"],
                 Some(lesson_dir),
                 &env_vars,
                 token,
