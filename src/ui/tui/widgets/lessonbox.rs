@@ -132,28 +132,28 @@ impl ContentBlock for CodeBlock {
     fn render(&self, _width: u16) -> Vec<Line<'static>> {
         let mut lines = Vec::new();
         let border_style = Style::default().fg(Color::Gray);
-        
+
         // Create simple top border
         let top_border = "┌─";
         lines.push(Line::from(Span::styled(top_border, border_style)));
-        
+
         // Add code content with side borders
         let code_lines = if let Some(language) = &self.language {
             self.render_with_syntax_highlighting(language)
         } else {
             self.render_plain()
         };
-        
+
         for code_line in code_lines {
             let mut new_spans = vec![Span::styled("│ ", border_style)];
             new_spans.extend(code_line.spans);
             lines.push(Line::from(new_spans));
         }
-        
+
         // Create simple bottom border
         let bottom_border = "└─";
         lines.push(Line::from(Span::styled(bottom_border, border_style)));
-        
+
         lines
     }
 }
@@ -564,6 +564,8 @@ pub struct LessonBoxState {
     window_lines: usize,
     /// Currently highlighted line index
     highlighted_line: usize,
+    /// Is there a highlighted line?
+    is_highlighted_line: bool,
 }
 
 /// Cached line with metadata for hint tracking
@@ -588,9 +590,21 @@ impl LessonBoxState {
             total_lines: 0,
             window_lines: 0,
             highlighted_line: 0,
+            is_highlighted_line: true,
         };
         state.rebuild_cache(80); // Default width
         state
+    }
+
+    pub fn set_highlighted_line(&mut self, highlighting: bool) {
+        self.is_highlighted_line = highlighting;
+    }
+
+    pub fn is_highlighted(&self, line: usize) -> bool {
+        if !self.is_highlighted_line {
+            return false;
+        }
+        self.highlighted_line == line && self.highlighted_line < self.cached_lines.len()
     }
 
     /// Rebuild the cached lines from content
@@ -694,6 +708,9 @@ impl LessonBoxState {
 
     /// Check if the highlighted line is a collapsed hint title
     pub fn is_highlighted_hint(&self) -> Option<usize> {
+        if !self.is_highlighted_line {
+            return None;
+        }
         if self.highlighted_line < self.cached_lines.len() {
             if let Some(cached_line) = self.cached_lines.get(self.highlighted_line) {
                 if cached_line.is_hint_title {
@@ -876,7 +893,7 @@ impl StatefulWidget for LessonBox<'_> {
             .skip(start_line)
             .take(end_line - start_line)
             .map(|(line_idx, cached_line)| {
-                let is_highlighted = line_idx == state.highlighted_line;
+                let is_highlighted = state.is_highlighted(line_idx);
                 let is_hint_title = cached_line.is_hint_title;
 
                 if is_highlighted {
@@ -1196,7 +1213,7 @@ fn main() {
         };
         let lines = code_block.render(80);
         assert_eq!(lines.len(), 3); // top border + 1 code line + bottom border
-        
+
         // Check top border
         let top_border_text: String = lines[0]
             .spans
@@ -1205,7 +1222,7 @@ fn main() {
             .collect::<Vec<&str>>()
             .join("");
         assert_eq!(top_border_text, "┌─");
-        
+
         // Check code line has side border
         let code_line_text: String = lines[1]
             .spans
@@ -1258,7 +1275,7 @@ fn main() {
         // Check code line has proper side border
         let code_text: String = lines[1].spans.iter().map(|s| s.content.as_ref()).collect();
         assert!(code_text.starts_with("│ "));
-        
+
         // Check bottom border formatting
         let bottom_text: String = lines[2].spans.iter().map(|s| s.content.as_ref()).collect();
         assert_eq!(bottom_text, "└─");

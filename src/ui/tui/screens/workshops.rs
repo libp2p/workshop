@@ -300,10 +300,14 @@ impl Workshops<'_> {
                     match v {
                         FocusedView::Metadata(scroll_box) => scroll_box.set_text(&metadata),
                         FocusedView::Description(_, state) => {
-                            *state = LessonBoxState::from_markdown(&description);
+                            let mut lb = LessonBoxState::from_markdown(&description);
+                            lb.set_highlighted_line(false);
+                            *state = lb;
                         }
                         FocusedView::SetupInstructions(_, state) => {
-                            *state = LessonBoxState::from_markdown(&setup_instructions);
+                            let mut lb = LessonBoxState::from_markdown(&setup_instructions);
+                            lb.set_highlighted_line(false);
+                            *state = lb;
                         }
                         _ => {}
                     }
@@ -438,7 +442,7 @@ impl Workshops<'_> {
         if self.workshops.is_empty() {
             return None;
         }
-        if let Some(FocusedView::List(_, state)) = self.views.get(self.focused) {
+        if let Some(FocusedView::List(_, state)) = self.views.get("list") {
             let selected_index = state.selected().unwrap_or(0);
             self.get_workshop_keys().get(selected_index).cloned()
         } else {
