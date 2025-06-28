@@ -2201,7 +2201,7 @@ checksum = "271414315aff87387382ec3d271b52d7ae78726f5d44ac98b4f4030c91880486"
 
 [[package]]
 name = "workshop"
-version = "1.0.13"
+version = "1.0.14"
 dependencies = [
  "anyhow",
  "async-trait",
