@@ -230,15 +230,69 @@ impl CommandRunner {
             ("LESSON_PATH", lesson_path.as_str()),
         ];
 
+        // Clean up any previous containers
+        self.run_command_with_env(
+            docker_compose_executable,
+            &[
+                "rm",
+                "-f",
+                "ucw-checker-02-tcp-transport",
+                "ucw-checker-03-ping-checkpoint",
+                "ucw-checker-04-quic-transport",
+                "ucw-checker-05-identify-checkpoint",
+                "ucw-checker-06-gossipsub-checkpoint",
+                "ucw-checker-07-kademlia-checkpoint",
+                "ucw-checker-08-final-checkpoint",
+            ],
+            Some(lesson_dir),
+            &env_vars,
+            token,
+            false,
+        )
+        .await?;
+
+        // Clean up any previous networks
+        self.run_command_with_env(
+            docker_compose_executable,
+            &["network", "rm", "-f", "workshop-net"],
+            Some(lesson_dir),
+            &env_vars,
+            token,
+            false,
+        )
+        .await?;
+
+        // Create the network
+        self.run_command_with_env(
+            docker_compose_executable,
+            &[
+                "network",
+                "create",
+                "--driver",
+                "bridge",
+                "--subnet",
+                "172.16.16.0/24",
+                "workshop-net",
+            ],
+            Some(lesson_dir),
+            &env_vars,
+            token,
+            false,
+        )
+        .await?;
+
         // Run docker compose up --build
-        debug!(
-            "Running '{docker_compose_executable} compose up --build' in '{}' with PROJECT_ROOT={project_root} LESSON_PATH={lesson_path}",
-            lesson_dir.display(),
-        );
         let docker_result = self
             .run_command_with_env(
                 docker_compose_executable.as_ref(),
-                &["compose", "up", "--build"],
+                &[
+                    "compose",
+                    "--project-name",
+                    "workshop",
+                    "up",
+                    "--build",
+                    "--remove-orphans",
+                ],
                 Some(lesson_dir),
                 &env_vars,
                 token,
