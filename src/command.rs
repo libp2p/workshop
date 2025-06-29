@@ -316,6 +316,39 @@ impl CommandRunner {
             return Ok(docker_result);
         }
 
+        // Clean up any previous containers
+        self.run_command_with_env(
+            docker_compose_executable,
+            &[
+                "rmi",
+                "-f",
+                "workshop-lesson",
+                "ucw-checker-02-tcp-transport",
+                "ucw-checker-03-ping-checkpoint",
+                "ucw-checker-04-quic-transport",
+                "ucw-checker-05-identify-checkpoint",
+                "ucw-checker-06-gossipsub-checkpoint",
+                "ucw-checker-07-kademlia-checkpoint",
+                "ucw-checker-08-final-checkpoint",
+            ],
+            Some(lesson_dir),
+            &env_vars,
+            token,
+            false,
+        )
+        .await?;
+
+        // Clean up all other containers
+        self.run_command_with_env(
+            docker_compose_executable,
+            &["prune", "-a", "-f"],
+            Some(lesson_dir),
+            &env_vars,
+            token,
+            false,
+        )
+        .await?;
+
         // Run python check.py
         self.run_command(
             python_executable.as_ref(),
