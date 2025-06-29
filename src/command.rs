@@ -236,6 +236,7 @@ impl CommandRunner {
             &[
                 "rm",
                 "-f",
+                "workshop-lesson",
                 "ucw-checker-02-tcp-transport",
                 "ucw-checker-03-ping-checkpoint",
                 "ucw-checker-04-quic-transport",
