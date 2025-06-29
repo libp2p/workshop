@@ -234,7 +234,7 @@ impl CommandRunner {
         self.run_command_with_env(
             docker_compose_executable,
             &[
-                "rm",
+                "rmi",
                 "-f",
                 "workshop-lesson",
                 "ucw-checker-02-tcp-transport",
@@ -245,6 +245,17 @@ impl CommandRunner {
                 "ucw-checker-07-kademlia-checkpoint",
                 "ucw-checker-08-final-checkpoint",
             ],
+            Some(lesson_dir),
+            &env_vars,
+            token,
+            false,
+        )
+        .await?;
+
+        // Clean up all other containers
+        self.run_command_with_env(
+            docker_compose_executable,
+            &["prune", "-a", "-f"],
             Some(lesson_dir),
             &env_vars,
             token,
