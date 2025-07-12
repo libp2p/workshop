@@ -65,6 +65,7 @@ pub mod application {
                 "/usr/local/bin/python3",
                 "/bin/python3",
                 "~/.pyenv/shims/python3",
+                "~/.local/bin/python3",
             ]);
         }
 
@@ -177,12 +178,20 @@ pub mod application {
 
         #[cfg(target_os = "macos")]
         {
-            candidates.extend(vec!["/usr/local/bin/git", "/opt/homebrew/bin/git"]);
+            candidates.extend(vec![
+                "/usr/bin/git",
+                "/usr/local/bin/git",
+                "/opt/homebrew/bin/git",
+            ]);
         }
 
         #[cfg(target_os = "linux")]
         {
-            candidates.extend(vec!["/usr/bin/git", "/usr/local/bin/git"]);
+            candidates.extend(vec![
+                "/usr/bin/git",
+                "/usr/local/bin/git",
+                "~/.local/bin/git",
+            ]);
         }
 
         for candidate in candidates.iter() {
