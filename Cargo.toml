@@ -27,6 +27,6 @@ thiserror = "2.0.12"
 tokio = { version = "1.32", features = ["full"] }
 tokio-util = "0.7.15"
 tracing = "0.1.41"
-tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
+tracing-subscriber = { version = "0.3.20", features = ["env-filter"] }
 webbrowser = "1.0.4"
 textwrap = "0.16.2"
