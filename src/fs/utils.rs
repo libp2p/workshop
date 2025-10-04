@@ -156,8 +156,14 @@ pub mod application {
     pub async fn find_git_executable<S: AsRef<str>>(min_version: S) -> Result<String, Error> {
         // parse the git version from the --version output
         fn parse_version(output: &str) -> Option<Version> {
-            let version_str = output.rsplit_once(' ')?.1.trim();
-            Version::parse(version_str).ok()
+            // works for: 
+            // Linux: git version 2.39.5
+            // MacOS: git version 2.39.5 (Apple Git-154)
+            // Windows: git version 2.39.5.windows.1
+            let version_str = output.
+                split_ascii_whitespace().nth(2).unwrap_or("unknown")
+                .split(".").take(3).collect::<Vec<&str>>().join(".");
+            Version::parse(&version_str).ok()
         }
 
         let min_version =
@@ -205,7 +211,7 @@ pub mod application {
                     let version_output = String::from_utf8_lossy(&output.stdout);
                     debug!("Git version output: {}", version_output);
 
-                    // Parse version from "git version 2.34.1"
+                    // Parse version for all OS responses
                     if let Some(version) = parse_version(&version_output) {
                         if version >= min_version {
                             info!("Found git executable: {} (version: {})", candidate, version);
